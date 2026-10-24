@@ -86,10 +86,9 @@ fun CameraBody(
         Text("PHONE_FILM", color = LabelGray, style = labelStyle.copy(letterSpacing = .3.em), modifier = Modifier.padding(top = 8.dp, bottom = 6.dp))
         lcd()
 
-        // 모드: FILM <-(원형 키)-> SINGLE
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp).height(36.dp), verticalAlignment = Alignment.CenterVertically) {
+        // 모드: FILM / SINGLE (라벨을 눌러 바꾼다)
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp).height(32.dp), verticalAlignment = Alignment.CenterVertically) {
             ModeLabel("FILM", mode == Mode.FILM, Modifier.weight(1f)) { onMode(Mode.FILM) }
-            RoundKey(34.dp) { onMode(if (mode == Mode.FILM) Mode.SINGLE else Mode.FILM) }
             ModeLabel("SINGLE", mode == Mode.SINGLE, Modifier.weight(1f), alignEnd = true) { onMode(Mode.SINGLE) }
         }
         // MENU / 십자키 / DISP
@@ -104,6 +103,7 @@ fun CameraBody(
             Shutter(onShutter)
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) { Segmented(playActive, onShoot, onPlay) }
         }
+        Spacer(Modifier.height(28.dp)) // 조작부를 위로 올려 아래쪽에 여유를 둔다
     }
 }
 
@@ -125,19 +125,6 @@ private fun keyModifier(shape: androidx.compose.ui.graphics.Shape, pressed: Bool
     Modifier.clip(shape)
         .background(Brush.verticalGradient(if (pressed) listOf(KeyBottom, KeyBottom) else listOf(KeyTop, KeyBottom)))
         .border(1.dp, KeyEdge, shape)
-
-@Composable
-private fun RoundKey(size: Dp, onClick: () -> Unit) {
-    val src = remember { MutableInteractionSource() }
-    val pressed by src.collectIsPressedAsState()
-    Box(
-        Modifier.size(size).then(keyModifier(CircleShape, pressed)).semantics { contentDescription = "필름/단일 모드 전환" }
-            .clickable(src, null, role = Role.Button, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(Modifier.size(size / 3).clip(CircleShape).background(Color(0xFF0E0E10)))
-    }
-}
 
 @Composable
 private fun KeyButton(text: String, w: Dp, h: Dp, onClick: () -> Unit) {
