@@ -25,7 +25,11 @@ enum class Film(
     PORTRA("kportra800", "KPortra800", "KPortra800", 800, 0xFFC27A5A, 0xFFF8E8E0, 0xFF73402A, "들뜬 그림자, 부드러운 피부톤"),
     PROVIA("provia100f", "Provia100F", "Provia100F", 100, 0xFF2F7DB5, 0xFFE0EEF8, 0xFF1B4766, "정확하고 깨끗한 색"),
     AUTUMN("warmautumn", "WarmAutumn", "WarmAutumn", 200, 0xFFB5651D, 0xFFF8E6D2, 0xFF6B3A0E, "초록이 노랗게 물드는 가을 색"),
-    CHROME("classicchrome", "CLASSIC CHROME", "CLASSIC CHROME", 200, 0xFF4A6B6E, 0xFFE4EDEE, 0xFF26383A, "탁하게 가라앉은 채도, 청록빛 그림자");
+    CHROME("classicchrome", "CLASSIC CHROME", "CLASSIC CHROME", 200, 0xFF4A6B6E, 0xFFE4EDEE, 0xFF26383A, "탁하게 가라앉은 채도, 청록빛 그림자"),
+    LEICA_STD("leicastd", "LeicaSTD", "LeicaSTD", 100, 0xFFB5322A, 0xFFF8E4E2, 0xFF6B1B16, "절제된 색, 살짝 따뜻한 초록"),
+    LEICA_VIV("leicaviv", "LeicaVIV", "LeicaVIV", 100, 0xFFC4452B, 0xFFF9E6DF, 0xFF70230F, "조금 더 짙고 선명한 초록"),
+    FPROVIA("fprovia100f", "FProvia100F", "FProvia100F", 100, 0xFF3B82B8, 0xFFE2EEF8, 0xFF1E4A6B, "깨끗하고 정확한 색"),
+    KCHROME("kchrome", "KCHROME", "KCHROME", 64, 0xFFC99A1E, 0xFFF9F0D4, 0xFF6E5409, "진한 노랑, 따뜻한 중간톤");
 
     /** assets/luts 아래의 .cube 파일 이름 */
     val lutAsset: String get() = "luts/$key.cube"

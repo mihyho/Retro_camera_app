@@ -24,6 +24,7 @@ RECIPES = {  # 파일 이름 -> 앱 필름 키
     "Ektar100": "ektar100", "KGold200": "kgold200", "KPortra800": "kportra800",
     "Provia100F": "provia100f", "WarmAutumn": "warmautumn",
     "CLASSIC CHROME": "classicchrome",
+    "LeicaSTD": "leicastd", "LeicaVIV": "leicaviv", "FProvia100F": "fprovia100f", "KCHROME": "kchrome",
 }
 BLEND_HUES = [29, 55, 110, 142, 195, 264, 305, 328]  # 빨강 주황 노랑 초록 청록 파랑 보라 자홍 (Oklab 색상각)
 BLEND_SIGMA = 22.0
@@ -54,7 +55,11 @@ def parse(path):
     assert d[:3] == b"NCP", path
     if d[0x0C:0x10] == b"0300":
         return legacy_classic_chrome(d)
-    curve = np.array(struct.unpack(">257H", d[0x1CC:0x1CC + 514]), dtype=np.float64) / 32767.0
+    if len(d) >= 900:  # 톤 커브 표는 파일 끝(꼬리 4바이트 앞)의 257개. 제작자 메모 등으로 파일 길이가 달라도 끝에서 센다
+        t = len(d) - 518
+        curve = np.array(struct.unpack(">257H", d[t:t + 514]), dtype=np.float64) / 32767.0
+    else:  # 라이카 레시피처럼 커브 표가 없는 파일: 톤 커브는 그대로(밝기 변화 없음)
+        curve = np.linspace(0, 1, 257)
     blend = np.array(list(d[0x14C:0x14C + 24]), dtype=np.float64).reshape(8, 3) - 128.0
     g = d[0x170:0x170 + 12]
     grade = [(g[i * 4 + 1], g[i * 4 + 2] - 128.0) for i in range(3)]  # (색조 0..255, 채도 차이)
