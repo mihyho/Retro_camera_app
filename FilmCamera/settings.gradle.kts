@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "FilmCamera"
+rootProject.name = "Retro_camera_app"
 include(":app")

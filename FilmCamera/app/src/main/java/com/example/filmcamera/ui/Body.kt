@@ -124,7 +124,7 @@ fun CameraBody(
         // 가로: 왼쪽 LCD, 오른쪽 조작부
         Row(bg.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(Modifier.weight(1f).fillMaxHeight()) {
-                Text("PHONE_FILM", color = LabelGray, style = labelStyle.copy(letterSpacing = .3.em), modifier = Modifier.padding(bottom = 4.dp))
+                Text("RETRO_CAMERA", color = LabelGray, style = labelStyle.copy(letterSpacing = .3.em), modifier = Modifier.padding(bottom = 4.dp))
                 lcd()
             }
             Column(Modifier.width(340.dp).fillMaxHeight(), verticalArrangement = Arrangement.SpaceEvenly) {
@@ -133,7 +133,7 @@ fun CameraBody(
         }
     } else {
         Column(bg.padding(horizontal = 16.dp)) {
-            Text("PHONE_FILM", color = LabelGray, style = labelStyle.copy(letterSpacing = .3.em), modifier = Modifier.padding(top = 8.dp, bottom = 6.dp))
+            Text("RETRO_CAMERA", color = LabelGray, style = labelStyle.copy(letterSpacing = .3.em), modifier = Modifier.padding(top = 8.dp, bottom = 6.dp))
             lcd()
             Box(Modifier.padding(top = 6.dp)) { modeRow() }
             Box(Modifier.offset(y = (-14).dp)) { keysRow() }
