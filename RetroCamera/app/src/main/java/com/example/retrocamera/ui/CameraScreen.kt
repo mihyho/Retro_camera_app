@@ -156,7 +156,7 @@ fun CameraScreen(
                 Key.DOWN -> onZoomBy(0.8f)
                 Key.LEFT -> c.cycleFilm(-1)
                 Key.RIGHT -> c.cycleFilm(1)
-                Key.SET -> c.openDrawer()
+                Key.SET -> c.flipCamera() // 메인 화면에서는 SET이 카메라 전환
             }
         }
     }
@@ -181,6 +181,7 @@ fun CameraScreen(
             onShoot = { c.discardAsk = null; c.panel = null; c.closeDrawer() },
             onPlay = { c.discardAsk = null; c.exposureOpen = false; c.closeDrawer(); c.playSingle = true; c.panel = Panel.Gallery },
             onShutter = onShutter,
+            setLabel = if (c.panel == null && !c.drawerOpen && !c.exposureOpen && c.discardAsk == null) "FLIP" else "SET",
         ) {
             ViewfinderZone(
                 glView = glView, label = label, grid = s.grid, stampOn = s.stamp, stampText = c.stampText(),

@@ -45,6 +45,8 @@ class LutRenderer(
         glView.requestRender()
     }
     @Volatile private var rotationDegrees = 0
+    /** 전면 카메라 미리보기를 좌우 반전 */
+    @Volatile var mirror = false
 
     /** GL 컨텍스트가 새로 만들어져(화면 회전 때 뷰가 옮겨지면 생긴다) 카메라 출력이 끊겼을 때: 카메라를 다시 연결하도록 알린다 */
     var onContextRecreated: (() -> Unit)? = null
@@ -144,7 +146,7 @@ class LutRenderer(
         val sy = if (imgAspect > viewAspect) 1f else imgAspect / viewAspect
         Matrix.setIdentityM(local, 0)
         Matrix.translateM(local, 0, 0.5f, 0.5f, 0f)
-        Matrix.scaleM(local, 0, sx, sy, 1f)
+        Matrix.scaleM(local, 0, if (mirror) -sx else sx, sy, 1f)
         Matrix.translateM(local, 0, -0.5f, -0.5f, 0f)
         Matrix.multiplyMM(mvp, 0, stMatrix, 0, local, 0)
 

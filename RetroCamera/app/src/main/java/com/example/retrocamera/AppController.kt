@@ -100,6 +100,13 @@ class AppController(private val appContext: Context) {
     var zoomMax by mutableFloatStateOf(1f)
         private set
 
+    // ── 전면/후면 카메라 ──
+    /** true = 전면(셀카) 카메라. 앱을 켤 때마다 후면에서 시작한다 */
+    var lensFront by mutableStateOf(false)
+    /** MainActivity가 카메라를 다시 연결하는 함수 */
+    var onFlipCamera: (() -> Unit)? = null
+    fun flipCamera() { onFlipCamera?.invoke() }
+
     // ── 노출 보정 ──
     /** 노출 조정 창이 열려 있는지(십자키가 노출을 조정한다) */
     var exposureOpen by mutableStateOf(false)

@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity() {
         glView = GLSurfaceView(this)
         glView.setEGLContextClientVersion(3)
         renderer = LutRenderer(glView, controller.lutFor(controller.currentFilm), ContextCompat.getMainExecutor(this))
+        controller.onFlipCamera = { controller.lensFront = !controller.lensFront; startCamera() }
         controller.onExposureChange = { camera?.cameraControl?.setExposureCompensationIndex(it) }
         renderer.onContextRecreated = { if (imageCapture != null) startCamera() }
         glView.setRenderer(renderer)
@@ -117,6 +118,13 @@ class MainActivity : ComponentActivity() {
         val providerFuture = ProcessCameraProvider.getInstance(this)
         providerFuture.addListener({
             val provider = providerFuture.get()
+            var selector = if (controller.lensFront) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+            if (!provider.hasCamera(selector)) { // 전면 카메라가 없는 기기
+                controller.lensFront = false
+                controller.showToast("전면 카메라를 찾을 수 없어요")
+                selector = CameraSelector.DEFAULT_BACK_CAMERA
+            }
+            renderer.mirror = controller.lensFront // 셀카 미리보기는 거울처럼 좌우 반전(저장되는 사진은 반전하지 않는다)
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider { request -> renderer.onSurfaceRequested(request) }
             }
@@ -135,7 +143,7 @@ class MainActivity : ComponentActivity() {
             imageCapture = capture
             applyDisplayRotation()
             provider.unbindAll()
-            val cam = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture)
+            val cam = provider.bindToLifecycle(this, selector, preview, capture)
             camera = cam
             cam.cameraInfo.exposureState.let { es ->
                 controller.updateExposure(es.exposureCompensationRange.lower..es.exposureCompensationRange.upper, es.exposureCompensationStep.toFloat())
