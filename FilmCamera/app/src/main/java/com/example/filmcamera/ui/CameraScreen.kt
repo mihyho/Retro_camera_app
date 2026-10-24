@@ -170,7 +170,7 @@ fun CameraScreen(
             onUp = { press(Key.UP) }, onDown = { press(Key.DOWN) },
             onLeft = { press(Key.LEFT) }, onRight = { press(Key.RIGHT) },
             onSet = { press(Key.SET) },
-            onFilm = c::openDrawer,
+            onFilm = { if (c.drawerOpen) c.closeDrawer() else c.openDrawer() }, // 필름 키를 다시 누르면 선택을 취소하고 닫는다
             onShoot = { c.discardAsk = null; c.panel = null; c.closeDrawer() },
             onPlay = { c.discardAsk = null; c.closeDrawer(); c.playSingle = true; c.panel = Panel.Gallery },
             onShutter = onShutter,
