@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import android.content.res.Configuration
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.layout.layoutId
+import androidx.compose.ui.layout.Layout
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.LaunchedEffect
@@ -124,28 +127,56 @@ fun CameraBody(
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) { Segmented(playActive, onShoot, onPlay) }
         }
     }
-    val bg = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(BodyTop, BodyBottom)))
-        .windowInsetsPadding(WindowInsets.systemBars).windowInsetsPadding(WindowInsets.displayCutout)
-
-    if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-        // 가로: 왼쪽 LCD, 오른쪽 조작부
-        Row(bg.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Column(Modifier.weight(1f).fillMaxHeight()) {
-                Text("RETRO_CAMERA", color = LabelGray, style = labelStyle.copy(letterSpacing = .3.em), modifier = Modifier.padding(bottom = 4.dp))
-                lcd()
+    val land = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    // 세로/가로가 바뀌어도 같은 자리에서 같은 자식들을 배치만 다르게 한다(세로 <-> 가로로 Row/Column을 바꾸면 카메라 화면 뷰가
+    // 떼어졌다 다시 붙어서 화면이 깜빡이고 카메라가 다시 연결된다)
+    Layout(
+        content = {
+            Text("RETRO_CAMERA", color = LabelGray, style = labelStyle.copy(letterSpacing = .3.em), modifier = Modifier.layoutId("brand"))
+            Column(Modifier.layoutId("lcd")) { lcd() }
+            Box(Modifier.layoutId("mode")) { modeRow() }
+            Box(Modifier.layoutId("keys")) { keysRow() }
+            Box(Modifier.layoutId("bottom")) { bottomRow() }
+        },
+        modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(BodyTop, BodyBottom)))
+            .windowInsetsPadding(WindowInsets.systemBars).windowInsetsPadding(WindowInsets.displayCutout),
+    ) { measurables, constraints ->
+        fun id(name: String) = measurables.first { it.layoutId == name }
+        val w = constraints.maxWidth; val h = constraints.maxHeight
+        val padX = 16.dp.roundToPx()
+        val modeH = 32.dp.roundToPx(); val keysH = 164.dp.roundToPx(); val bottomH = 84.dp.roundToPx()
+        val brand = id("brand").measure(constraints.copy(minWidth = 0, minHeight = 0))
+        layout(w, h) {
+            if (land) {
+                // 가로: 왼쪽 LCD, 오른쪽 조작부(폭 340dp)
+                val padY = 8.dp.roundToPx(); val gap = 16.dp.roundToPx(); val rightW = 340.dp.roundToPx()
+                val leftW = w - 2 * padX - gap - rightW
+                val brandGap = 4.dp.roundToPx()
+                val lcdH = h - 2 * padY - brand.height - brandGap
+                val lcd = id("lcd").measure(Constraints.fixed(leftW, lcdH.coerceAtLeast(0)))
+                brand.placeRelative(padX, padY)
+                lcd.placeRelative(padX, padY + brand.height + brandGap)
+                val x = w - padX - rightW
+                val free = (h - 2 * padY - modeH - keysH - bottomH).coerceAtLeast(0)
+                val sp = free / 4
+                var y = padY + sp
+                for ((name, ph) in listOf("mode" to modeH, "keys" to keysH, "bottom" to bottomH)) {
+                    id(name).measure(Constraints.fixed(rightW, ph)).placeRelative(x, y)
+                    y += ph + sp
+                }
+            } else {
+                val topGap = 8.dp.roundToPx(); val brandBottom = 6.dp.roundToPx(); val modeTop = 6.dp.roundToPx()
+                val keysUp = 14.dp.roundToPx(); val bottomPad = 28.dp.roundToPx()
+                val contentW = w - 2 * padX
+                val lcdH = h - topGap - brand.height - brandBottom - modeTop - modeH - (keysH - keysUp) - bottomH - bottomPad
+                val lcd = id("lcd").measure(Constraints.fixed(contentW, lcdH.coerceAtLeast(0)))
+                var y = topGap
+                brand.placeRelative(padX, y); y += brand.height + brandBottom
+                lcd.placeRelative(padX, y); y += lcd.height + modeTop
+                id("mode").measure(Constraints.fixed(contentW, modeH)).placeRelative(padX, y); y += modeH
+                id("keys").measure(Constraints.fixed(contentW, keysH)).placeRelative(padX, y - keysUp); y += keysH - keysUp
+                id("bottom").measure(Constraints.fixed(contentW, bottomH)).placeRelative(padX, y)
             }
-            Column(Modifier.width(340.dp).fillMaxHeight(), verticalArrangement = Arrangement.SpaceEvenly) {
-                modeRow(); keysRow(); bottomRow()
-            }
-        }
-    } else {
-        Column(bg.padding(horizontal = 16.dp)) {
-            Text("RETRO_CAMERA", color = LabelGray, style = labelStyle.copy(letterSpacing = .3.em), modifier = Modifier.padding(top = 8.dp, bottom = 6.dp))
-            lcd()
-            Box(Modifier.padding(top = 6.dp)) { modeRow() }
-            Box(Modifier.offset(y = (-14).dp)) { keysRow() }
-            bottomRow()
-            Spacer(Modifier.height(28.dp)) // 조작부를 위로 올려 아래쪽에 여유를 둔다
         }
     }
 }
