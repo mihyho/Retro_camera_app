@@ -7,7 +7,7 @@ NP3 는 색 표가 아니라 슬라이더 묶음이라 니콘 내부 처리와 �
   - 컬러 그레이딩: 그림자/중간/하이라이트 각각 (색조 각도, 채도)
 아래 값은 "근사"를 위한 가정이다. 폰에서 보고 맞춰 가며 조정한다(HUE_MAX, CHROMA_MAX, LIGHT_MAX, GRADE_K).
 
-사용법:  python tools/np3_to_lut.py <입력 폴더>      -> assets/luts/<이름>.cube 5개
+사용법:  python tools/np3_to_lut.py <NP3 폴더> [<다른 폴더> ...]      -> assets/luts/<이름>.cube (RECIPES 의 파일 중 찾은 것)
 """
 import colorsys
 import struct
@@ -23,6 +23,7 @@ ASSETS = Path(__file__).resolve().parent.parent / "FilmCamera" / "app" / "src" /
 RECIPES = {  # 파일 이름 -> 앱 필름 키
     "Ektar100": "ektar100", "KGold200": "kgold200", "KPortra800": "kportra800",
     "Provia100F": "provia100f", "WarmAutumn": "warmautumn",
+    "CLASSIC CHROME": "classicchrome",
 }
 BLEND_HUES = [29, 55, 110, 142, 195, 264, 305, 328]  # 빨강 주황 노랑 초록 청록 파랑 보라 자홍 (Oklab 색상각)
 BLEND_SIGMA = 22.0
@@ -32,9 +33,27 @@ LIGHT_MAX = 0.08   # 밝기 값 ±128 이 바꾸는 Oklab 밝기
 GRADE_K = 0.15     # 컬러 그레이딩 채도 값(0x80 기준 차이/128)이 더하는 Oklab 색 크기
 
 
+def legacy_classic_chrome(d):
+    """구버전(0300) NP3: 톤 커브/컬러 블렌더/그레이딩이 없고 기본 슬라이더 몇 개뿐이라 파일만으로는 색을 정할 수 없다.
+    파일에서 읽는 것은 대비 +20(항목 6)뿐이고(어느 항목이 무엇인지는 추정), 나머지는 이름("CLASSIC CHROME", 후지필름 클래식 크롬 느낌)을 따라
+    정한 값이다: 채도를 낮추고, 그림자는 청록 쪽, 하이라이트는 따뜻한 쪽, 초록은 노랗게 가라앉히고, 파랑은 어둡고 탁하게."""
+    contrast = (d[0x52] - 128) / 100.0  # 0x94 = +20 -> 0.2
+    x = np.linspace(0, 1, 257)
+    curve = x + (contrast * 2.0) * (x * x * (3 - 2 * x) - x)  # 대비 +20 -> 중간 기준 S자 0.4배
+    blend = np.zeros((8, 3))
+    blend[:, 1] = -26                      # 전체 채도 약 -12%
+    blend[3] = (-32, -38, 0)               # 초록: 노란 쪽으로, 채도 더 낮춤
+    blend[5] = (0, -20, -20)               # 파랑: 탁하고 어둡게
+    blend[0] = (0, 0, -10)                 # 빨강: 살짝 깊게
+    grade = [(128, 18.0), (0, 0.0), (28, 8.0)]  # 그림자 청록 +18, 하이라이트 따뜻한 노랑 +8
+    return curve, blend, grade
+
+
 def parse(path):
     d = Path(path).read_bytes()
     assert d[:3] == b"NCP", path
+    if d[0x0C:0x10] == b"0300":
+        return legacy_classic_chrome(d)
     curve = np.array(struct.unpack(">257H", d[0x1CC:0x1CC + 514]), dtype=np.float64) / 32767.0
     blend = np.array(list(d[0x14C:0x14C + 24]), dtype=np.float64).reshape(8, 3) - 128.0
     g = d[0x170:0x170 + 12]
@@ -92,9 +111,12 @@ def build(curve, blend, grade):
 
 
 def main():
-    src = Path(sys.argv[1])
+    srcs = [Path(a) for a in sys.argv[1:]]  # NP3 가 들어 있는 폴더들
     for name, key in RECIPES.items():
-        lut = build(*parse(src / f"{name}.NP3"))
+        path = next((f for f in (d / f"{name}.NP3" for d in srcs) if f.exists()), None)
+        if path is None:
+            continue
+        lut = build(*parse(path))
         X.write_cube(str(ASSETS / f"{key}.cube"), lut, title=key)
         mid = lut[16, 16, 16]
         print(f"{key}: 중간 회색 -> {np.round(mid, 3)}  (0.5 = 변화 없음)")
