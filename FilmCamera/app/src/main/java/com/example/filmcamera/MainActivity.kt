@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity() {
         glView = GLSurfaceView(this)
         glView.setEGLContextClientVersion(3)
         renderer = LutRenderer(glView, controller.lutFor(controller.currentFilm), ContextCompat.getMainExecutor(this))
+        renderer.onContextRecreated = { if (imageCapture != null) startCamera() }
         glView.setRenderer(renderer)
         glView.renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
 

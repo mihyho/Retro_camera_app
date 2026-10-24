@@ -46,6 +46,9 @@ class LutRenderer(
     }
     @Volatile private var rotationDegrees = 0
 
+    /** GL 컨텍스트가 새로 만들어져(화면 회전 때 뷰가 옮겨지면 생긴다) 카메라 출력이 끊겼을 때: 카메라를 다시 연결하도록 알린다 */
+    var onContextRecreated: (() -> Unit)? = null
+
     // GL 스레드 전용 상태
     private var program = 0
     private var camTex = 0
@@ -73,7 +76,9 @@ class LutRenderer(
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         // GL 컨텍스트가 새로 만들어진 것이므로 이전 객체는 모두 무효
-        surfaceTexture = null
+        val wasStreaming = surfaceTexture != null && pendingRequest == null
+        surfaceTexture = null // 이전 컨텍스트의 텍스처라 쓸 수 없다
+        if (wasStreaming) mainExecutor.execute { onContextRecreated?.invoke() }
         program = buildProgram(VERTEX, FRAGMENT)
         val tex = IntArray(2)
         GLES30.glGenTextures(2, tex, 0)
