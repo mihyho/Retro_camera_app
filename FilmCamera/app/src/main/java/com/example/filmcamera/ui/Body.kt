@@ -36,6 +36,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -125,7 +130,11 @@ private fun keyModifier(shape: androidx.compose.ui.graphics.Shape, pressed: Bool
 private fun RoundKey(size: Dp, onClick: () -> Unit) {
     val src = remember { MutableInteractionSource() }
     val pressed by src.collectIsPressedAsState()
-    Box(Modifier.size(size).then(keyModifier(CircleShape, pressed)).clickable(src, null, onClick = onClick), contentAlignment = Alignment.Center) {
+    Box(
+        Modifier.size(size).then(keyModifier(CircleShape, pressed)).semantics { contentDescription = "필름/단일 모드 전환" }
+            .clickable(src, null, role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
         Box(Modifier.size(size / 3).clip(CircleShape).background(Color(0xFF0E0E10)))
     }
 }
@@ -154,6 +163,16 @@ private fun DPad(size: Dp, onUp: () -> Unit, onDown: () -> Unit, onLeft: () -> U
         Modifier.size(size).clip(CircleShape)
             .background(Brush.verticalGradient(listOf(Color(0xFF2E2E33), Color(0xFF151518))))
             .border(1.dp, KeyEdge, CircleShape)
+            .semantics {
+                contentDescription = "십자키"
+                customActions = listOf(
+                    CustomAccessibilityAction("위") { up(); true },
+                    CustomAccessibilityAction("아래") { down(); true },
+                    CustomAccessibilityAction("왼쪽") { left(); true },
+                    CustomAccessibilityAction("오른쪽") { right(); true },
+                    CustomAccessibilityAction("SET") { set(); true },
+                )
+            }
             .pointerInput(Unit) {
                 detectTapGestures { o ->
                     val dx = o.x - this.size.width / 2f
@@ -222,7 +241,8 @@ private fun Shutter(onClick: () -> Unit) {
     Box(
         Modifier.size(68.dp).clip(CircleShape)
             .background(Brush.verticalGradient(listOf(Color(0xFF9A9AA0), Color(0xFF3A3A40))))
-            .clickable(src, null, onClick = onClick).padding(5.dp),
+            .semantics { contentDescription = "셔터" }
+            .clickable(src, null, role = Role.Button, onClick = onClick).padding(5.dp),
         contentAlignment = Alignment.Center,
     ) {
         Box(
@@ -240,7 +260,7 @@ data class FilmRow(val film: Film, val current: Boolean, val locked: Boolean, va
 fun FilmMenu(subtitle: String, rows: List<FilmRow>, selected: Int, onPick: (Int) -> Unit, onClose: () -> Unit) {
     LcdScaffold("필름  Film", "▲▼ 이동 · SET 선택 · $subtitle", onClose) {
         rows.forEachIndexed { i, r ->
-            val fg = if (r.locked) Color(0xFF4F5E6B) else Color(0xFFE4ECF2)
+            val fg = if (r.locked) Color(0xFF4F5E6B) else PFLight.Text
             Column(
                 Modifier.fillMaxWidth().background(if (i == selected) LcdBlue else Color.Transparent)
                     .clickable(remember { MutableInteractionSource() }, null) { onPick(i) }
@@ -248,7 +268,7 @@ fun FilmMenu(subtitle: String, rows: List<FilmRow>, selected: Int, onPick: (Int)
             ) {
                 Row {
                     Text(r.film.displayName, color = fg, style = monoStyle.copy(fontSize = 15.sp), modifier = Modifier.weight(1f))
-                    Text(r.label, color = if (r.current) Color(0xFFFFB066) else Color(0xFF93A5B3).copy(alpha = if (r.locked) .5f else 1f), style = monoStyle.copy(fontSize = 11.sp))
+                    Text(r.label, color = if (r.current) Color(0xFFFFB066) else PFLight.Neutral700.copy(alpha = if (r.locked) .5f else 1f), style = monoStyle.copy(fontSize = 11.sp))
                 }
                 Text(r.film.description, color = fg.copy(alpha = .75f), style = TextStyle(fontFamily = PFFonts.Figtree, fontSize = 11.sp), modifier = Modifier.padding(top = 2.dp))
             }

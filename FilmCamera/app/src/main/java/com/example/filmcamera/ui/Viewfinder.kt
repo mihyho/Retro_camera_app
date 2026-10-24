@@ -169,26 +169,26 @@ private fun NoFilmOverlay(
     fun Chip(text: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
         Box(
             Modifier.clip(RoundedCornerShape(3.dp))
-                .background(if (selected) LcdBlue else Color(0xFF16212C))
+                .background(if (selected) LcdBlue else PFLight.Surface)
                 .clickable(remember { MutableInteractionSource() }, null, enabled = enabled, onClick = onClick)
                 .padding(horizontal = 14.dp, vertical = 9.dp),
             contentAlignment = Alignment.Center,
-        ) { Text(text, color = if (enabled) Color(0xFFE4ECF2) else Color(0xFF5F6F7C), style = mono.copy(fontSize = 13.sp), softWrap = false) }
+        ) { Text(text, color = if (enabled) PFLight.Text else PFLight.Neutral300, style = mono.copy(fontSize = 13.sp), softWrap = false) }
     }
     Column(
-        Modifier.fillMaxSize().background(Color(0xFF0B1118).copy(alpha = .82f)).padding(16.dp),
+        Modifier.fillMaxSize().background(PFLight.Bg.copy(alpha = .82f)).padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterVertically),
     ) {
         Text("NO FILM", color = LcdOrange, style = mono.copy(fontSize = 15.sp, letterSpacing = .2.em))
-        Text("필름을 골라 넣어 주세요", color = Color(0xFFE4ECF2), style = TextStyle(fontFamily = PFFonts.Figtree, fontSize = 12.sp))
+        Text("필름을 골라 넣어 주세요", color = PFLight.Text, style = TextStyle(fontFamily = PFFonts.Figtree, fontSize = 12.sp))
         Chip(pendingFilm?.let { "필름: ${it.displayName}" } ?: "필름: 고르기", selected = pendingFilm != null, onClick = onDrawer)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(24, 36).forEach { n -> Chip("${n}장", n == pendingLength) { onPendingLength(n) } }
         }
         Chip(if (pendingFilm != null) "${pendingFilm.displayName} ${pendingLength}장 장전" else "필름을 골라 주세요", selected = false, enabled = pendingFilm != null, onClick = onLoad)
         Text(
-            "넣으면 다 찍을 때까지 바꿀 수 없고, 사진은 롤이 끝나면 현상돼요", color = Color(0xFF93A5B3),
+            "넣으면 다 찍을 때까지 바꿀 수 없고, 사진은 롤이 끝나면 현상돼요", color = PFLight.Neutral700,
             style = TextStyle(fontFamily = PFFonts.Figtree, fontSize = 11.sp, textAlign = TextAlign.Center),
         )
     }

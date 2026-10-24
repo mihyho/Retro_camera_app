@@ -51,6 +51,8 @@ data class MenuItem(
     val value: String? = null,
     val danger: Boolean = false,
     val enabled: Boolean = true,
+    /** 켜고 끄는 항목: ◀▶ 키로도 바뀐다(그 밖의 항목은 SET에서만 동작) */
+    val toggle: Boolean = false,
     val onKey: (Int) -> Unit,
 )
 

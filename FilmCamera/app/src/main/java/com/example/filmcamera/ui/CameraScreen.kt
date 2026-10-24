@@ -79,9 +79,9 @@ fun CameraScreen(
         }
     }
     val settingsItems = buildList {
-        add(MenuItem("격자 표시", if (s.grid) "켬" else "끔") { c.setGrid(!s.grid) })
-        add(MenuItem("날짜 각인", if (s.stamp) "켬" else "끔") { c.setStamp(!s.stamp) })
-        add(MenuItem("볼륨 버튼 촬영", if (s.volumeShutter) "켬" else "끔") { c.setVolumeShutter(!s.volumeShutter) })
+        add(MenuItem("격자 표시", if (s.grid) "켬" else "끔", toggle = true) { c.setGrid(!s.grid) })
+        add(MenuItem("날짜 각인", if (s.stamp) "켬" else "끔", toggle = true) { c.setStamp(!s.stamp) })
+        add(MenuItem("볼륨 버튼 촬영", if (s.volumeShutter) "켬" else "끔", toggle = true) { c.setVolumeShutter(!s.volumeShutter) })
         if (roll != null) add(MenuItem("필름 버리기", "SET", danger = true) { if (it == 0) c.askDiscard() })
         if (BuildConfig.DEBUG) {
             add(MenuItem("남은 장 모두 찍기", "TEST", enabled = roll != null) { if (it == 0) c.debugFinishRoll() })
@@ -125,8 +125,8 @@ fun CameraScreen(
                 when (key) {
                     Key.UP -> c.moveMenu(-1, settingsItems.size)
                     Key.DOWN -> c.moveMenu(1, settingsItems.size)
-                    Key.LEFT -> if (settingsItems[i].value in listOf("켬", "끔")) settingsItems[i].onKey(-1)
-                    Key.RIGHT -> if (settingsItems[i].value in listOf("켬", "끔")) settingsItems[i].onKey(1)
+                    Key.LEFT -> if (settingsItems[i].toggle) settingsItems[i].onKey(-1)
+                    Key.RIGHT -> if (settingsItems[i].toggle) settingsItems[i].onKey(1)
                     Key.SET -> if (settingsItems[i].enabled) settingsItems[i].onKey(0)
                 }
             }
@@ -234,7 +234,8 @@ fun CameraScreen(
                 },
             )
         }
-        Toast(c, Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.systemBars).padding(top = 56.dp))
+        // 아래 조작부(약 272dp)와 LCD 베젤 위, LCD 안쪽 아래: 왼쪽 위 라벨과 겹치지 않는다
+        Toast(c, Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars).padding(bottom = 318.dp))
     }
 }
 
