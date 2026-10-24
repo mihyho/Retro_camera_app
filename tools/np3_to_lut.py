@@ -19,7 +19,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import extract_lut as X  # noqa: E402
 
-ASSETS = Path(__file__).resolve().parent.parent / "FilmCamera" / "app" / "src" / "main" / "assets" / "luts"
+ASSETS = Path(__file__).resolve().parent.parent / "RetroCamera" / "app" / "src" / "main" / "assets" / "luts"
 RECIPES = {  # 파일 이름 -> 앱 필름 키
     "Ektar100": "ektar100", "KGold200": "kgold200", "KPortra800": "kportra800",
     "Provia100F": "provia100f", "WarmAutumn": "warmautumn",

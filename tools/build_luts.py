@@ -11,7 +11,7 @@
     python tools/build_luts.py                 # 사진 쌍이 있는 필름만 만든다(없는 필름은 건너뛰고 기존 LUT 유지)
     python tools/build_luts.py gold            # 특정 필름만
 
-결과: FilmCamera/app/src/main/assets/luts/<필름>.cube
+결과: RetroCamera/app/src/main/assets/luts/<필름>.cube
       (확인용 비교 이미지는 local/luts/<필름>_check.jpg)
 """
 import sys
@@ -37,7 +37,7 @@ LOOKS = {
     "tungsten": dict(kelvin=3300, sat=0.40, highlights=0.75, contrast=0.80),
 }
 SAMPLES = ROOT / "local" / "samples"
-ASSETS = ROOT / "FilmCamera" / "app" / "src" / "main" / "assets" / "luts"
+ASSETS = ROOT / "RetroCamera" / "app" / "src" / "main" / "assets" / "luts"
 CHECKS = ROOT / "local" / "luts"
 
 

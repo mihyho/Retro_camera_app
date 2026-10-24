@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import extract_lut as E  # noqa: E402
 
 FILMS = ["tungsten", "gold", "forest"]
-ASSETS = ROOT / "FilmCamera" / "app" / "src" / "main" / "assets" / "luts"
+ASSETS = ROOT / "RetroCamera" / "app" / "src" / "main" / "assets" / "luts"
 OUT = ROOT / "local" / "luts" / "cross_check.jpg"
 H = 380
 

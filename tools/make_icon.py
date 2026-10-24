@@ -6,7 +6,7 @@
 import sys
 from pathlib import Path
 
-RES = Path(__file__).resolve().parent.parent / "FilmCamera" / "app" / "src" / "main" / "res"
+RES = Path(__file__).resolve().parent.parent / "RetroCamera" / "app" / "src" / "main" / "res"
 BG = "#1F1F23"
 # (종류, 좌표, 색, 모서리 반지름) — rect: x0,y0,x1,y1 / circle: cx,cy,r
 SHAPES = [

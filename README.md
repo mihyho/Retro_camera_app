@@ -25,8 +25,8 @@
 ## 구성
 
 ```
-FilmCamera/                  안드로이드 앱 (Kotlin + Jetpack Compose + CameraX + OpenGL ES 3.0)
-  app/src/main/java/com/example/filmcamera/
+RetroCamera/                  안드로이드 앱 (Kotlin + Jetpack Compose + CameraX + OpenGL ES 3.0)
+  app/src/main/java/com/example/retrocamera/
     MainActivity.kt          카메라 세션, 셔터, 촬영 흐름
     AppController.kt         앱 상태(롤/모드/설정), 패널, 갤러리 내보내기 재개
     LutRenderer.kt           프리뷰에 3D LUT를 적용하는 GL 렌더러
@@ -48,14 +48,14 @@ local/                       개인 작업물(보정 전/후 사진, LUT 추출 
 요구 사항: Android Studio(번들 JBR 사용), Android SDK 36, minSdk 29(Android 10) 이상 기기.
 
 ```bash
-cd FilmCamera
+cd RetroCamera
 # 시스템 JDK가 너무 새로우면(예: 26) AGP가 실패하므로 Android Studio의 JBR을 쓰세요
 export JAVA_HOME="C:/Program Files/Android/Android Studio/jbr"
 ./gradlew :app:assembleDebug        # 디버그 APK
 ./gradlew :app:testDebugUnitTest    # 단위 테스트
 ```
 
-Android Studio에서 `FilmCamera` 폴더를 열면 `local.properties`(SDK 경로)가 자동으로 만들어집니다. 이 파일은 저장소에 포함되지 않습니다.
+Android Studio에서 `RetroCamera` 폴더를 열면 `local.properties`(SDK 경로)가 자동으로 만들어집니다. 이 파일은 저장소에 포함되지 않습니다.
 
 **디버그 빌드에서만** 설정 화면에 "프로토타입 테스트" 버튼이 보입니다.
 
@@ -85,7 +85,7 @@ python tools/build_luts.py           # 사진 쌍이 있는 필름만 만든다(
 python tools/build_luts.py gold      # 특정 필름만
 ```
 
-결과는 `FilmCamera/app/src/main/assets/luts/<필름>.cube`에 저장되고, 확인용 비교 이미지는 `local/luts/<필름>_check.jpg`에 생깁니다.
+결과는 `RetroCamera/app/src/main/assets/luts/<필름>.cube`에 저장되고, 확인용 비교 이미지는 `local/luts/<필름>_check.jpg`에 생깁니다.
 
 **한 파일만 만들기**
 
