@@ -345,7 +345,7 @@ fun FilmMenu(subtitle: String, rows: List<FilmRow>, selected: Int, onPick: (Int)
         if (r.first < scroll.value) scroll.animateScrollTo(r.first)
         else if (r.last > scroll.value + viewport) scroll.animateScrollTo(r.last - viewport)
     }
-    LcdScaffold("필름  Film", "▲▼ 이동 · SET 선택 · $subtitle", onClose) {
+    LcdScaffold("필터  Filter", "▲▼ 이동 · SET 선택 · $subtitle", onClose) {
       Column(Modifier.weight(1f).fillMaxWidth().onSizeChanged { viewport = it.height }.verticalScroll(scroll)) {
         rows.forEachIndexed { i, r ->
             val fg = if (r.locked) Color(0xFF4F5E6B) else PFLight.Text

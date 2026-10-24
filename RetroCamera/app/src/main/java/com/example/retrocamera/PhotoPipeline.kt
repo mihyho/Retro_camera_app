@@ -4,6 +4,10 @@ import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.media.ExifInterface
 import android.provider.MediaStore
 import com.example.retrocamera.data.Film
@@ -20,7 +24,7 @@ object PhotoPipeline {
     private const val STRIP_ROWS = 256
     private const val JPEG_QUALITY = 95
 
-    fun process(context: Context, jpeg: ByteArray, rotationDegrees: Int, lut: CubeLut, mode: Mode, film: Film, grainOn: Boolean = true): SavedPhoto {
+    fun process(context: Context, jpeg: ByteArray, rotationDegrees: Int, lut: CubeLut, mode: Mode, film: Film, grainOn: Boolean = true, stampText: String? = null): SavedPhoto {
         val opts = BitmapFactory.Options().apply {
             inMutable = true
             inPreferredConfig = Bitmap.Config.ARGB_8888
@@ -30,6 +34,8 @@ object PhotoPipeline {
 
         // 필름의 룩: 색감(LUT) + 명료도 + 그레인. 명료도와 그레인 값은 필름마다 정해져 있다(Film.clarity, Film.grain)
         applyLut(bmp, lut, film.clarity, if (grainOn) film.grain else 0f)
+
+        if (stampText != null) drawStamp(bmp, stampText, rotationDegrees)
 
         val tmp = File.createTempFile("shot_", ".jpg", context.cacheDir)
         try {
@@ -49,6 +55,29 @@ object PhotoPipeline {
         } finally {
             tmp.delete()
         }
+    }
+
+    /**
+     * 날짜 각인: 사진을 똑바로 세웠을 때(EXIF 회전 적용 후) 오른쪽 아래에 오도록 그린다.
+     * 픽셀은 센서 방향 그대로이므로, 똑바로 선 좌표계를 센서 방향으로 돌려서 그린다.
+     */
+    private fun drawStamp(bmp: Bitmap, text: String, rotationDegrees: Int) {
+        val rot = (rotationDegrees % 360 + 360) % 360
+        val w = bmp.width.toFloat(); val h = bmp.height.toFloat()
+        val upW = if (rot % 180 == 0) w else h
+        val upH = if (rot % 180 == 0) h else w
+        val m = Matrix().apply {
+            setRotate(-rot.toFloat())
+            when (rot) { 90 -> postTranslate(0f, h); 180 -> postTranslate(w, h); 270 -> postTranslate(w, 0f) }
+        }
+        val size = minOf(upW, upH) * 0.04f
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFFF9A3C.toInt(); textSize = size; typeface = Typeface.MONOSPACE
+            textAlign = Paint.Align.RIGHT; setShadowLayer(size * 0.08f, 0f, 0f, 0xAA000000.toInt())
+        }
+        val canvas = Canvas(bmp)
+        canvas.concat(m)
+        canvas.drawText(text, upW - size * 0.9f, upH - size * 0.9f, paint)
     }
 
     /** 흐림(세부 분리) 반경: 프리뷰 셰이더(1.5텍셀, 폭 약 1300px 기준)와 비슷한 비율로 맞춘다 */

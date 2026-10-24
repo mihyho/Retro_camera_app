@@ -45,6 +45,10 @@ class LutRenderer(
         glView.requestRender()
     }
     @Volatile private var rotationDegrees = 0
+    /** 화면(UI)을 돌렸을 때 미리보기가 같이 돌아가지 않도록 더 돌려 줄 각도(시계 방향). SurfaceTexture 행렬은 세로 기준 회전만 담고 있다 */
+    @Volatile private var extraRotation = 0f
+    private val rotM = FloatArray(16)
+    private val tmpM = FloatArray(16)
 
     /** GL 컨텍스트가 새로 만들어져(화면 회전 때 뷰가 옮겨지면 생긴다) 카메라 출력이 끊겼을 때: 카메라를 다시 연결하도록 알린다 */
     var onContextRecreated: (() -> Unit)? = null
@@ -68,6 +72,9 @@ class LutRenderer(
     fun onSurfaceRequested(request: SurfaceRequest) {
         request.setTransformationInfoListener(mainExecutor) { info ->
             rotationDegrees = info.rotationDegrees
+            val steps = when (info.targetRotation) { android.view.Surface.ROTATION_90 -> 1; android.view.Surface.ROTATION_180 -> 2; android.view.Surface.ROTATION_270 -> 3; else -> 0 }
+            // 후면은 화면이 한 칸 돌 때마다 rotationDegrees가 -90, 전면(좌우 반전 카메라)은 +90씩 변한다
+            extraRotation = (((if (info.isMirroring) 1 else -1) * EXTRA_SIGN * 90 * steps) % 360 + 360) % 360f
             glView.requestRender()
         }
         pendingRequest = request
@@ -146,7 +153,12 @@ class LutRenderer(
         Matrix.translateM(local, 0, 0.5f, 0.5f, 0f)
         Matrix.scaleM(local, 0, sx, sy, 1f)
         Matrix.translateM(local, 0, -0.5f, -0.5f, 0f)
-        Matrix.multiplyMM(mvp, 0, stMatrix, 0, local, 0)
+        Matrix.setIdentityM(rotM, 0)
+        Matrix.translateM(rotM, 0, 0.5f, 0.5f, 0f)
+        Matrix.rotateM(rotM, 0, extraRotation, 0f, 0f, 1f)
+        Matrix.translateM(rotM, 0, -0.5f, -0.5f, 0f)
+        Matrix.multiplyMM(tmpM, 0, rotM, 0, local, 0)
+        Matrix.multiplyMM(mvp, 0, stMatrix, 0, tmpM, 0)
 
         GLES30.glUseProgram(program)
         GLES30.glUniformMatrix4fv(GLES30.glGetUniformLocation(program, "uTexMatrix"), 1, false, mvp, 0)
@@ -203,6 +215,8 @@ class LutRenderer(
     }
 
     private companion object {
+        const val EXTRA_SIGN = 1
+
         const val VERTEX = """#version 300 es
 layout(location = 0) in vec2 aPos;
 uniform mat4 uTexMatrix;

@@ -180,6 +180,7 @@ class MainActivity : ComponentActivity() {
         val film = controller.currentFilm
         val rollStart = s.roll?.start
         val grainOn = s.grainOn
+        val stampText = if (s.stamp) formatStamp(System.currentTimeMillis()) else null
         if (mode == Mode.FILM) {
             val roll = s.roll
             if (roll == null) { controller.showToast("필름을 먼저 넣어 주세요"); return }
@@ -205,7 +206,7 @@ class MainActivity : ComponentActivity() {
                     image.close()
                 }
                 worker.execute {
-                    val result = runCatching { PhotoPipeline.process(applicationContext, bytes, rotation, lut, mode, film, grainOn) }
+                    val result = runCatching { PhotoPipeline.process(applicationContext, bytes, rotation, lut, mode, film, grainOn, stampText) }
                     runOnUiThread {
                         if (mode == Mode.FILM) inFlightFilm--
                         result.onSuccess { controller.onPhotoSaved(it, mode, film, rollStart) }
