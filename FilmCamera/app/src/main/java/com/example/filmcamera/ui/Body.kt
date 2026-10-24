@@ -94,9 +94,9 @@ fun CameraBody(
     }
     // MENU / 십자키 / DISP
     val keysRow: @Composable () -> Unit = {
-        Row(Modifier.fillMaxWidth().height(144.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(Modifier.fillMaxWidth().height(164.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             KeyButton("MENU", 64.dp, 40.dp, onMenu)
-            DPad(136.dp, onUp, onDown, onLeft, onRight, onSet)
+            DPad(156.dp, onUp, onDown, onLeft, onRight, onSet)
             KeyButton("DISP", 64.dp, 40.dp, onDisp)
         }
     }
