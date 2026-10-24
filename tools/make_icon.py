@@ -30,6 +30,7 @@ SHAPES = [
 
 def rect_path(x0, y0, x1, y1, r):
     w, h = x1 - x0, y1 - y0
+    r = min(r, w / 2, h / 2)  # 반지름이 변보다 크면 경로에 "v--3" 같은 잘못된 값이 생겨 런처가 아이콘을 못 읽는다
     if r <= 0:
         return f"M{x0},{y0}h{w}v{h}h-{w}z"
     return (f"M{x0 + r},{y0}h{w - 2 * r}a{r},{r} 0 0,1 {r},{r}v{h - 2 * r}a{r},{r} 0 0,1 -{r},{r}"
