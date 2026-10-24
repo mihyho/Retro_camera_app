@@ -111,7 +111,7 @@ fun CameraScreen(
         when {
             ask != null -> when (key) {
                 Key.LEFT, Key.RIGHT -> c.discardAsk = 1 - ask
-                Key.SET -> if (ask == 1) c.discardRoll() else c.discardAsk = null
+                Key.SET -> if (ask == 0) c.discardAsk = null else if (c.deleteTarget != null) c.deletePhoto(entries.size) else c.discardRoll()
                 else -> {}
             }
             c.drawerOpen -> when (key) {
@@ -134,8 +134,8 @@ fun CameraScreen(
                 if (c.playSingle) when (key) { // 한 장 보기: ◀ 오래된 쪽, ▶ 최근 쪽
                     Key.LEFT -> c.moveMenu(-1, entries.size)
                     Key.RIGHT -> c.moveMenu(1, entries.size)
-                    Key.DOWN, Key.SET -> c.playSingle = false
-                    Key.UP -> {}
+                    Key.SET -> c.playSingle = false
+                    Key.UP, Key.DOWN -> c.askDeletePhoto(entries[c.menuIndex.coerceIn(0, entries.lastIndex)].shot)
                 } else when (key) { // 목록
                     Key.UP -> c.moveMenu(-GALLERY_COLS, entries.size)
                     Key.DOWN -> c.moveMenu(GALLERY_COLS, entries.size)
@@ -225,9 +225,17 @@ fun CameraScreen(
                         FilmMenu(hint, filmRows, c.menuIndex, onPick = { c.menuIndex = it; pickFilm(it) }, onClose = c::closeDrawer)
                     }
                     val ask = c.discardAsk
-                    if (ask != null && roll != null) {
+                    if (ask != null && c.deleteTarget != null) {
                         DiscardConfirm(
-                            roll, ask, onChoose = { c.discardAsk = it },
+                            "사진을 삭제할까요?", "이 사진이 기기에서 삭제되고 되돌릴 수 없어요.", "삭제", ask,
+                            onChoose = { c.discardAsk = it }, onCancel = { c.discardAsk = null }, onConfirm = { c.deletePhoto(entries.size) },
+                        )
+                    } else if (ask != null && roll != null) {
+                        DiscardConfirm(
+                            "필름을 버릴까요?",
+                            if (roll.shots.isEmpty()) "아직 찍은 사진이 없어요. ${roll.film.displayName} 필름을 빼내고 새로 고를 수 있어요."
+                            else "${roll.film.displayName} 롤에 찍은 ${roll.shots.size}장의 사진이 모두 삭제되고 되돌릴 수 없어요. 필름 잠금이 풀려요.",
+                            "버리기", ask, onChoose = { c.discardAsk = it },
                             onCancel = { c.discardAsk = null }, onConfirm = c::discardRoll,
                         )
                     }

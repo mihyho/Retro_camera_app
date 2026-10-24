@@ -101,7 +101,7 @@ fun SettingsMenu(items: List<MenuItem>, selected: Int, onSelect: (Int) -> Unit, 
 
 /** 필름 버리기 확인 창. choice: 0 = 취소(기본), 1 = 버리기 */
 @Composable
-fun DiscardConfirm(roll: Roll, choice: Int, onChoose: (Int) -> Unit, onCancel: () -> Unit, onConfirm: () -> Unit) {
+fun DiscardConfirm(title: String, body: String, confirmText: String, choice: Int, onChoose: (Int) -> Unit, onCancel: () -> Unit, onConfirm: () -> Unit) {
     Box(
         Modifier.fillMaxSize().background(Color.Black.copy(alpha = .65f))
             .clickable(remember { MutableInteractionSource() }, null, onClick = onCancel),
@@ -114,14 +114,13 @@ fun DiscardConfirm(roll: Roll, choice: Int, onChoose: (Int) -> Unit, onCancel: (
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("필름을 버릴까요?", color = PFLight.Text, style = mono.copy(fontSize = 15.sp))
+            Text(title, color = PFLight.Text, style = mono.copy(fontSize = 15.sp))
             Text(
-                if (roll.shots.isEmpty()) "아직 찍은 사진이 없어요. ${roll.film.displayName} 필름을 빼내고 새로 고를 수 있어요."
-                else "${roll.film.displayName} 롤에 찍은 ${roll.shots.size}장의 사진이 모두 삭제되고 되돌릴 수 없어요. 필름 잠금이 풀려요.",
+                body,
                 color = PFLight.Neutral700, style = hintStyle.copy(fontSize = 12.sp, lineHeight = 18.sp),
             )
             Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                for ((i, text) in listOf("취소", "버리기").withIndex()) {
+                for ((i, text) in listOf("취소", confirmText).withIndex()) {
                     val on = choice == i
                     Box(
                         Modifier.weight(1f).clip(RoundedCornerShape(4.dp))
@@ -141,7 +140,7 @@ fun DiscardConfirm(roll: Roll, choice: Int, onChoose: (Int) -> Unit, onCancel: (
 
 const val GALLERY_COLS = 3
 
-/** 사진 한 장을 LCD 가득 보여 준다. ◀▶(또는 옆으로 밀기)로 넘기고, SET/▼(또는 탭)으로 목록으로 */
+/** 사진 한 장을 LCD 가득 보여 준다. ◀▶(또는 옆으로 밀기)로 넘기고, SET(또는 탭)으로 목록으로, ▲▼로 삭제 */
 @Composable
 fun PlaybackView(entries: List<GalleryEntry>, index: Int, pendingCount: Int, onStep: (Int) -> Unit, onIndex: () -> Unit) {
     val i = index.coerceIn(0, entries.lastIndex)
@@ -172,7 +171,7 @@ fun PlaybackView(entries: List<GalleryEntry>, index: Int, pendingCount: Int, onS
         Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().background(Color.Black.copy(alpha = .55f)).padding(horizontal = 10.dp, vertical = 6.dp)) {
             Text(e.meta, color = Color(0xFFFFB066), style = mono.copy(fontSize = 11.sp))
             if (pendingCount > 0) Text("현상 대기 중인 사진 ${pendingCount}장", color = PFLight.Neutral700, style = hintStyle)
-            Text("◀▶ 넘기기 · SET 목록 · 촬영 돌아가기", color = PFLight.Neutral700, style = hintStyle)
+            Text("◀▶ 넘기기 · ▲▼ 삭제 · SET 목록", color = PFLight.Neutral700, style = hintStyle)
         }
     }
 }

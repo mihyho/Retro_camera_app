@@ -50,6 +50,19 @@ object RollEngine {
         return s.copy(roll = null)
     }
 
+    /**
+     * 재생에서 사진 한 장을 지운다(단일 촬영 또는 현상된 롤의 한 장). 롤의 마지막 장을 지우면 롤 기록도 함께 없앤다.
+     * 갤러리로 내보내기가 안 끝난 롤은 내보내기가 장 수 기준으로 uri를 채우므로 건드리지 않는다(그대로 반환).
+     */
+    fun deleteShot(s: AppState, shot: Shot): AppState {
+        fun Shot.same() = file == shot.file && takenAt == shot.takenAt
+        if (s.singleShots.any { it.same() }) return s.copy(singleShots = s.singleShots.filterNot { it.same() })
+        val rolls = s.devRolls.map { r ->
+            if (!r.exported || r.shots.none { it.same() }) r else r.copy(shots = r.shots.filterNot { it.same() })
+        }.filter { it.shots.isNotEmpty() || !it.exported }
+        return s.copy(devRolls = rolls)
+    }
+
     /** 상태가 아직 필요로 하는 앱 전용 폴더의 사진 파일(상대 경로): 진행 중인 롤 + 갤러리로 내보내기가 안 끝난 현상 롤 */
     fun referencedPrivateFiles(s: AppState): Set<String> =
         (s.roll?.shots.orEmpty() + s.devRolls.filter { !it.exported }.flatMap { it.shots }).map { it.file }.toSet()

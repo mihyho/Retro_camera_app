@@ -236,4 +236,27 @@ class RollEngineTest {
         val running = RollEngine.recordFilmShot(RollEngine.loadRoll(AppState(), Film.GOLD, 24, 2), Shot(Film.GOLD, "x.jpg", 9L), 9).first
         assertTrue(galleryEntries(running.devRolls, running.singleShots).isEmpty())
     }
+
+    @Test
+    fun deleteShotRemovesSingleAndDevelopedPhotos() {
+        var s = RollEngine.loadRoll(AppState(), Film.FOREST, 24, 1)
+        for (i in 1..24) s = RollEngine.recordFilmShot(s, Shot(Film.FOREST, "p$i", 100L + i), 50).first
+        s = RollEngine.markExported(s, 1, (1..24).map { "u$it" })
+        s = RollEngine.recordSingleShot(s, Shot(Film.GOLD, "sg", 900L, "sg"))
+        val one = RollEngine.deleteShot(s, Shot(Film.GOLD, "sg", 900L, "sg"))
+        assertTrue(one.singleShots.isEmpty())
+        val dev = RollEngine.deleteShot(s, s.devRolls[0].shots[3])
+        assertEquals(23, dev.devRolls[0].shots.size)
+        assertEquals(1, dev.singleShots.size)
+    }
+
+    @Test
+    fun deleteShotDropsEmptyRollsAndSkipsUnexportedOnes() {
+        var s = RollEngine.loadRoll(AppState(), Film.GOLD, 24, 1)
+        for (i in 1..24) s = RollEngine.recordFilmShot(s, Shot(Film.GOLD, "p$i", 100L + i), 50).first
+        assertEquals("내보내기 전에는 그대로", s, RollEngine.deleteShot(s, s.devRolls[0].shots[0]))
+        s = RollEngine.markExported(s, 1, (1..24).map { "u$it" })
+        for (sh in s.devRolls[0].shots) s = RollEngine.deleteShot(s, sh)
+        assertTrue(s.devRolls.isEmpty())
+    }
 }

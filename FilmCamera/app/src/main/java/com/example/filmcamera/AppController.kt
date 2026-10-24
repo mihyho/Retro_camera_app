@@ -65,7 +65,31 @@ class AppController(private val appContext: Context) {
     /** 필름 버리기 확인 창: null = 닫힘, 0 = 취소 선택(기본), 1 = 버리기 선택 */
     var discardAsk by mutableStateOf<Int?>(null)
 
-    fun askDiscard() { discardAsk = 0 }
+    fun askDiscard() { deleteTarget = null; discardAsk = 0 }
+
+    /** 재생에서 지우려는 사진: 있으면 discardAsk 창은 "사진 삭제" 확인이다 */
+    var deleteTarget by mutableStateOf<Shot?>(null)
+
+    fun askDeletePhoto(shot: Shot) { deleteTarget = shot; discardAsk = 0 }
+
+    /** 사진 한 장 삭제: 상태를 먼저 바꾸고(앱이 죽어도 지워진 사진이 목록에 남지 않게) 실제 파일은 뒤에 지운다 */
+    fun deletePhoto(count: Int) {
+        val shot = deleteTarget ?: return
+        discardAsk = null
+        deleteTarget = null
+        val next = RollEngine.deleteShot(state, shot)
+        if (next == state) { showToast("아직 갤러리로 내보내는 중이라 지울 수 없어요"); return }
+        if (!tryCommit(next)) return
+        menuIndex = menuIndex.coerceAtMost(count - 2).coerceAtLeast(0)
+        if (count <= 1) playSingle = false
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                if (!shot.uri.isNullOrEmpty()) appContext.contentResolver.delete(android.net.Uri.parse(shot.uri), null, null)
+                else File(appContext.filesDir, shot.file).delete()
+            }
+        }
+        showToast("사진을 삭제했어요")
+    }
 
     /** 재생: true = 사진 한 장 보기, false = 3열 목록 */
     var playSingle by mutableStateOf(true)
