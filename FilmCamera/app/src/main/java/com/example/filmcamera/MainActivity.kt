@@ -174,10 +174,19 @@ class MainActivity : ComponentActivity() {
 
         capture.takePicture(ContextCompat.getMainExecutor(this), object : ImageCapture.OnImageCapturedCallback() {
             override fun onCaptureSuccess(image: ImageProxy) {
-                val buf = image.planes[0].buffer
-                val bytes = ByteArray(buf.remaining()).also { buf.get(it) }
-                val rotation = image.imageInfo.rotationDegrees
-                image.close()
+                val bytes: ByteArray
+                val rotation: Int
+                try {
+                    val buf = image.planes[0].buffer
+                    bytes = ByteArray(buf.remaining()).also { buf.get(it) }
+                    rotation = image.imageInfo.rotationDegrees
+                } catch (e: Exception) {
+                    if (mode == Mode.FILM) inFlightFilm-- // 카운터가 새면 마지막 장을 못 찍게 된다
+                    controller.showToast("촬영 실패")
+                    return
+                } finally {
+                    image.close()
+                }
                 worker.execute {
                     val result = runCatching { PhotoPipeline.process(applicationContext, bytes, rotation, lut, mode, film) }
                     runOnUiThread {

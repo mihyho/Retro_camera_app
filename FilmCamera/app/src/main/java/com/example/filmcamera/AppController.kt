@@ -98,6 +98,13 @@ class AppController(private val appContext: Context) {
         state = next
     }
 
+    /** 저장 공간 부족 등으로 상태를 못 쓰면 false (앱이 죽지 않고, 호출한 쪽이 방금 만든 사진을 지운다) */
+    private fun tryCommit(next: AppState): Boolean = try {
+        commit(next); true
+    } catch (e: Exception) {
+        showToast("저장 공간이 부족해 사진을 저장하지 못했어요"); false
+    }
+
     fun showToast(text: String) {
         toast = ToastMsg(++toastSeq, text)
     }
@@ -168,7 +175,10 @@ class AppController(private val appContext: Context) {
                 return
             }
             val (next, finished) = RollEngine.recordFilmShot(state, Shot(film, saved.file!!, now), now)
-            commit(next)
+            if (!tryCommit(next)) {
+                scope.launch(Dispatchers.IO) { File(appContext.filesDir, saved.file).delete() }
+                return
+            }
             if (finished) {
                 val rollStart = next.devRolls.first().start
                 exportPending() // 갤러리로 내보내기(백그라운드)
@@ -178,7 +188,9 @@ class AppController(private val appContext: Context) {
                 }
             }
         } else {
-            commit(RollEngine.recordSingleShot(state, Shot(film, saved.uri!!, now, saved.uri)))
+            if (!tryCommit(RollEngine.recordSingleShot(state, Shot(film, saved.uri!!, now, saved.uri)))) {
+                scope.launch(Dispatchers.IO) { runCatching { appContext.contentResolver.delete(android.net.Uri.parse(saved.uri), null, null) } }
+            }
         }
     }
 
