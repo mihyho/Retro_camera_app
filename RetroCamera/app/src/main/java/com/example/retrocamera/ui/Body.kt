@@ -95,7 +95,8 @@ fun CameraBody(
     onMode: (Mode) -> Unit, onMenu: () -> Unit, onExposure: () -> Unit,
     onUp: () -> Unit, onDown: () -> Unit, onLeft: () -> Unit, onRight: () -> Unit, onSet: () -> Unit,
     onFilm: () -> Unit, onShoot: () -> Unit, onPlay: () -> Unit, onShutter: () -> Unit,
-    setLabel: String = "SET",
+    /** 촬영 메인 화면: 가운데 버튼이 카메라 전환(아이콘)이고, 그 밖에는 SET */
+    flipKey: Boolean = false,
     /** 촬영 메인 화면: ▲▼가 확대(+)/축소(-)로 쓰인다는 걸 보여 주려고 +/- 로 그린다 */
     zoomKeys: Boolean = false,
     lcd: @Composable ColumnScope.() -> Unit,
@@ -111,7 +112,7 @@ fun CameraBody(
     val keysRow: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().height(164.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             KeyButton("MENU", 64.dp, 40.dp, onMenu)
-            DPad(156.dp, setLabel, zoomKeys, onUp, onDown, onLeft, onRight, onSet)
+            DPad(156.dp, flipKey, zoomKeys, onUp, onDown, onLeft, onRight, onSet)
             KeyButton("EV", 64.dp, 40.dp, onExposure)
         }
     }
@@ -180,7 +181,7 @@ private fun KeyButton(text: String, w: Dp, h: Dp, onClick: () -> Unit) {
 
 /** 상하좌우 + 가운데 SET. 눌린 위치로 방향을 판정한다 */
 @Composable
-private fun DPad(size: Dp, setLabel: String, zoomKeys: Boolean, onUp: () -> Unit, onDown: () -> Unit, onLeft: () -> Unit, onRight: () -> Unit, onSet: () -> Unit) {
+private fun DPad(size: Dp, flipKey: Boolean, zoomKeys: Boolean, onUp: () -> Unit, onDown: () -> Unit, onLeft: () -> Unit, onRight: () -> Unit, onSet: () -> Unit) {
     // pointerInput(Unit)의 블록은 처음 한 번만 만들어지므로, 콜백을 그대로 쓰면 처음 화면의 낡은 설정값을 계속 쓴다.
     // 항상 가장 최근 콜백을 부르도록 한다.
     val up by rememberUpdatedState(onUp)
@@ -249,11 +250,37 @@ private fun DPad(size: Dp, setLabel: String, zoomKeys: Boolean, onUp: () -> Unit
             drawCircle(Brush.verticalGradient(listOf(Color(0xFF3A3A40), Color(0xFF1A1A1D))), w * SET_RADIUS, c)
             drawCircle(KeyEdge, w * SET_RADIUS, c, style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
         }
-        Text(setLabel, color = KeyText, style = labelStyle.copy(fontSize = 11.sp))
+        if (flipKey) FlipIcon(Modifier.size(26.dp)) else Text("SET", color = KeyText, style = labelStyle.copy(fontSize = 11.sp))
     }
 }
 
 private const val SET_RADIUS = 0.19f
+
+/** 카메라 전환 아이콘: 서로 쫓는 두 개의 원형 화살표 */
+@Composable
+private fun FlipIcon(modifier: Modifier) {
+    Canvas(modifier) {
+        val c = Offset(size.width / 2, size.height / 2)
+        val r = size.width * .36f
+        val sw = size.width * .09f
+        val head = size.width * .17f
+        for (start in listOf(200f, 20f)) {
+            drawArc(KeyText, start, 130f, false, topLeft = Offset(c.x - r, c.y - r), size = androidx.compose.ui.geometry.Size(2 * r, 2 * r),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(sw, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+            // 화살촉: 호의 끝에서 진행 방향(시계 방향 접선)으로
+            val a = Math.toRadians((start + 130f).toDouble())
+            val p = c + Offset(kotlin.math.cos(a).toFloat(), kotlin.math.sin(a).toFloat()) * r
+            val n = Offset(kotlin.math.cos(a).toFloat(), kotlin.math.sin(a).toFloat())
+            val t = Offset(-n.y, n.x)
+            drawPath(Path().apply {
+                moveTo((p + t * head * 1.4f).x, (p + t * head * 1.4f).y)
+                lineTo((p + n * head).x, (p + n * head).y)
+                lineTo((p - n * head).x, (p - n * head).y)
+                close()
+            }, KeyText)
+        }
+    }
+}
 
 @Composable
 private fun FilmKey(name: String, onClick: () -> Unit) {

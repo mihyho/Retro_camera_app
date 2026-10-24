@@ -184,7 +184,7 @@ fun CameraScreen(
             onShoot = { c.discardAsk = null; c.panel = null; c.closeDrawer() },
             onPlay = { c.discardAsk = null; c.exposureOpen = false; c.closeDrawer(); c.playSingle = true; c.panel = Panel.Gallery },
             onShutter = onShutter,
-            setLabel = if (mainView) "FLIP" else "SET",
+            flipKey = mainView,
             zoomKeys = mainView,
         ) {
             ViewfinderZone(
