@@ -13,6 +13,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import android.content.res.Configuration
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -272,11 +281,22 @@ data class FilmRow(val film: Film, val current: Boolean, val locked: Boolean, va
 /** LCD 안의 필름 메뉴(디카 메뉴처럼 목록, 십자키로 고른 줄은 파란 막대). 서랍 대신 쓴다 */
 @Composable
 fun FilmMenu(subtitle: String, rows: List<FilmRow>, selected: Int, onPick: (Int) -> Unit, onClose: () -> Unit) {
+    // 필름이 많아 화면을 넘으므로 스크롤하고, 십자키로 고른 줄이 항상 보이게 따라간다
+    val scroll = rememberScrollState()
+    val tops = remember { mutableStateMapOf<Int, IntRange>() }
+    var viewport by remember { mutableStateOf(0) }
+    LaunchedEffect(selected, viewport, rows.size) {
+        val r = tops[selected] ?: return@LaunchedEffect
+        if (r.first < scroll.value) scroll.animateScrollTo(r.first)
+        else if (r.last > scroll.value + viewport) scroll.animateScrollTo(r.last - viewport)
+    }
     LcdScaffold("필름  Film", "▲▼ 이동 · SET 선택 · $subtitle", onClose) {
+      Column(Modifier.weight(1f).fillMaxWidth().onSizeChanged { viewport = it.height }.verticalScroll(scroll)) {
         rows.forEachIndexed { i, r ->
             val fg = if (r.locked) Color(0xFF4F5E6B) else PFLight.Text
             Column(
-                Modifier.fillMaxWidth().background(if (i == selected) LcdBlue else Color.Transparent)
+                Modifier.fillMaxWidth().onGloballyPositioned { tops[i] = it.positionInParent().y.toInt()..(it.positionInParent().y.toInt() + it.size.height) }
+                    .background(if (i == selected) LcdBlue else Color.Transparent)
                     .clickable(remember { MutableInteractionSource() }, null) { onPick(i) }
                     .padding(horizontal = 12.dp, vertical = 10.dp),
             ) {
@@ -287,5 +307,6 @@ fun FilmMenu(subtitle: String, rows: List<FilmRow>, selected: Int, onPick: (Int)
                 Text(r.film.description, color = fg.copy(alpha = .75f), style = TextStyle(fontFamily = PFFonts.Figtree, fontSize = 11.sp), modifier = Modifier.padding(top = 2.dp))
             }
         }
+      }
     }
 }
