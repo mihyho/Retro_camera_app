@@ -31,6 +31,7 @@ BLEND_SIGMA = 22.0
 HUE_MAX = 30.0     # 컬러 블렌더 색조 값 ±128 이 돌리는 각도
 CHROMA_MAX = 0.6   # 채도 값 ±128 이 바꾸는 비율
 LIGHT_MAX = 0.08   # 밝기 값 ±128 이 바꾸는 Oklab 밝기
+SAT_BOOST = {"leicaviv": 0.12}  # 레시피 값 위에 전체 채도를 더 올리는 비율(0.12 = +12%). 파일에서 읽을 수 없는 취향 보정
 GRADE_K = 0.15     # 컬러 그레이딩 채도 값(0x80 기준 차이/128)이 더하는 Oklab 색 크기
 
 
@@ -70,7 +71,7 @@ def _hue_dist(h, c):
     return np.abs((h - c + 180.0) % 360.0 - 180.0)
 
 
-def build(curve, blend, grade):
+def build(curve, blend, grade, sat=0.0):
     n = X.N
     grid = np.stack(np.meshgrid(*[np.linspace(0, 1, n)] * 3, indexing="ij"), axis=-1).reshape(-1, 3)
     lab = X.to_oklab(grid)
@@ -97,7 +98,7 @@ def build(curve, blend, grade):
         dh += w * h_off / 128.0 * HUE_MAX
         dc += w * c_off / 128.0 * CHROMA_MAX
         dl += w * l_off / 128.0 * LIGHT_MAX
-    ch = np.hypot(a, b) * np.clip(1.0 + dc, 0.0, 2.0)
+    ch = np.hypot(a, b) * np.clip(1.0 + dc + sat, 0.0, 2.0)
     ang = np.arctan2(b, a) + np.radians(dh)
     a, b, L = ch * np.cos(ang), ch * np.sin(ang), L + dl
 
@@ -121,7 +122,7 @@ def main():
         path = next((f for f in (d / f"{name}.NP3" for d in srcs) if f.exists()), None)
         if path is None:
             continue
-        lut = build(*parse(path))
+        lut = build(*parse(path), sat=SAT_BOOST.get(key, 0.0))
         X.write_cube(str(ASSETS / f"{key}.cube"), lut, title=key)
         mid = lut[16, 16, 16]
         print(f"{key}: 중간 회색 -> {np.round(mid, 3)}  (0.5 = 변화 없음)")
