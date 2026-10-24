@@ -232,12 +232,12 @@ private fun FilmKey(name: String, onClick: () -> Unit) {
     val src = remember { MutableInteractionSource() }
     val pressed by src.collectIsPressedAsState()
     Row(
-        Modifier.size(116.dp, 42.dp).then(keyModifier(RoundedCornerShape(8.dp), pressed)).clickable(src, null, onClick = onClick).padding(horizontal = 10.dp),
+        Modifier.size(132.dp, 42.dp).then(keyModifier(RoundedCornerShape(8.dp), pressed)).clickable(src, null, onClick = onClick).padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(3.dp, 20.dp).background(LcdOrange))
         Spacer(Modifier.width(8.dp))
-        Text(name, color = KeyText, style = monoStyle.copy(fontSize = 12.sp), maxLines = 1, softWrap = false)
+        Text(name, color = KeyText, style = monoStyle.copy(fontSize = if (name.length > 11) 10.sp else 12.sp), maxLines = 1, softWrap = false)
     }
 }
 
