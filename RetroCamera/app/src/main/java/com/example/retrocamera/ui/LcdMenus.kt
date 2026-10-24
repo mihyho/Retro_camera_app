@@ -239,7 +239,7 @@ fun GalleryMenu(
     }
 }
 
-/** 노출 조정 창: 촬영 화면 아래에 겹쳐 뜬다. ◀▶(▲▼)로 조정, SET 또는 노출 키로 확정 */
+/** 노출 조정 창: 촬영 화면 아래에 겹쳐 뜬다. ◀▶(▲▼)로 조정, SET 또는 EV 키로 확정 */
 @Composable
 fun ExposureBar(index: Int, range: IntRange, step: Float) {
     val span = (range.last - range.first).coerceAtLeast(1).toFloat()
@@ -260,6 +260,6 @@ fun ExposureBar(index: Int, range: IntRange, step: Float) {
             }
             drawCircle(PFLight.Accent, radius = 8f, center = Offset((index - range.first) / span * size.width, y))
         }
-        Text("◀▶ 조정 · SET 또는 노출 키로 확정", color = PFLight.Neutral700, style = hintStyle, modifier = Modifier.padding(top = 6.dp))
+        Text("◀▶ 조정 · SET 또는 EV 키로 확정", color = PFLight.Neutral700, style = hintStyle, modifier = Modifier.padding(top = 6.dp))
     }
 }

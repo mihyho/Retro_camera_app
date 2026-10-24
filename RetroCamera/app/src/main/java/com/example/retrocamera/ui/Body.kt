@@ -101,12 +101,12 @@ fun CameraBody(
             ModeLabel("SINGLE", mode == Mode.SINGLE, Modifier.weight(1f), alignEnd = true) { onMode(Mode.SINGLE) }
         }
     }
-    // MENU / 십자키 / 노출
+    // MENU / 십자키 / EV
     val keysRow: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().height(164.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             KeyButton("MENU", 64.dp, 40.dp, onMenu)
             DPad(156.dp, onUp, onDown, onLeft, onRight, onSet)
-            KeyButton("노출", 64.dp, 40.dp, onExposure)
+            KeyButton("EV", 64.dp, 40.dp, onExposure)
         }
     }
     // 필름 / 셔터 / 촬영·재생
