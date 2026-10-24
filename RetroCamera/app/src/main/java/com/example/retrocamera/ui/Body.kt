@@ -4,7 +4,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -197,13 +200,27 @@ private fun DPad(size: Dp, onUp: () -> Unit, onDown: () -> Unit, onLeft: () -> U
                 )
             }
             .pointerInput(Unit) {
-                detectTapGestures { o ->
+                // 누르는 순간 한 번 입력하고, 계속 누르고 있으면 방향키는 연속으로 입력한다(SET은 연속 입력 없음)
+                awaitEachGesture {
+                    val o = awaitFirstDown().position
                     val dx = o.x - this.size.width / 2f
                     val dy = o.y - this.size.height / 2f
-                    when {
-                        hypot(dx, dy) < this.size.width * SET_RADIUS -> set()
-                        abs(dx) > abs(dy) -> if (dx > 0) right() else left()
-                        else -> if (dy > 0) down() else up()
+                    if (hypot(dx, dy) < this.size.width * SET_RADIUS) { set(); waitForUpOrCancellation(); return@awaitEachGesture }
+                    // 누르는 동안 화면 상태가 바뀌므로(예: 메뉴 줄 이동) 부를 때마다 가장 최근 콜백을 읽는다
+                    val fire: () -> Unit = {
+                        when {
+                            abs(dx) > abs(dy) -> if (dx > 0) right() else left()
+                            else -> if (dy > 0) down() else up()
+                        }
+                    }
+                    fire()
+                    var wait = 400L // 처음 반복까지 잠깐 기다린 뒤 빠르게
+                    while (true) {
+                        var released = false
+                        withTimeoutOrNull(wait) { waitForUpOrCancellation(); released = true }
+                        if (released) break
+                        fire()
+                        wait = 90L
                     }
                 }
             },
