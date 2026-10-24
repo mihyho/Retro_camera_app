@@ -112,7 +112,7 @@ python tools/extract_lut.py my_film.cube before1.jpg after1.jpg [before2.jpg aft
 - **장면 고유 보정(잔차):** 규칙으로 설명되지 않는 미세한 보정은 색 데이터가 있는 곳에서만 LUT에 더합니다(`GATE_SIGMA`, `GATE_REF`).
 - **색 공간 변환:** Display P3 같은 ICC 프로파일이 든 사진(아이폰 등)은 sRGB로 변환해서 학습합니다(앱의 카메라 프레임이 sRGB 기준).
 - **기울기 상한:** LUT가 입력의 작은 차이를 크게 벌리는 구간(노이즈 증폭, 밴딩의 원인)을 펴 줍니다(`MAX_GAIN = 2.0`).
-- **니콘 레시피(.NP3) 5종:** Ektar100, KGold200, KPortra800, Provia100F, WarmAutumn, CLASSIC CHROME, LeicaSTD, LeicaVIV, FProvia100F, KCHROME은 `python tools/np3_to_lut.py <NP3 폴더>`로 근사 변환합니다. NP3는 색 표가 아니라 슬라이더 값(톤 커브, 컬러 블렌더, 컬러 그레이딩)이라 니콘 내부 처리와 똑같지는 않습니다. 색조/채도/밝기 배율(`HUE_MAX` 등)은 가정값이니 폰에서 보고 조정하세요. 레시피 제작자의 이용 조건은 직접 확인하세요.
+- **니콘 레시피(.NP3) 5종:** Ektar100, KGold200, KPortra800, Provia100F, WarmAutumn, CLASSIC CHROME, LeicaSTD, LeicaVIV, FProvia100F, KCHROME은 `python tools/np3_to_lut.py`로 `local/recipes/`의 NP3를 근사 변환합니다. NP3는 색 표가 아니라 슬라이더 값(톤 커브, 컬러 블렌더, 컬러 그레이딩)이라 니콘 내부 처리와 똑같지는 않습니다. 색조/채도/밝기 배율(`HUE_MAX` 등)은 가정값이니 폰에서 보고 조정하세요. 레시피 제작자의 이용 조건은 직접 확인하세요.
 - **교차 시험:** `python tools/cross_check.py` — 3종 LUT를 학습에 쓰지 않은 장면에 적용해 `local/luts/cross_check.jpg`로 저장합니다. LUT를 새로 만들 때마다 눈으로 확인하세요.
 
 ## 필름 룩: 명료도와 그레인

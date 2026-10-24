@@ -7,7 +7,7 @@ NP3 는 색 표가 아니라 슬라이더 묶음이라 니콘 내부 처리와 �
   - 컬러 그레이딩: 그림자/중간/하이라이트 각각 (색조 각도, 채도)
 아래 값은 "근사"를 위한 가정이다. 폰에서 보고 맞춰 가며 조정한다(HUE_MAX, CHROMA_MAX, LIGHT_MAX, GRADE_K).
 
-사용법:  python tools/np3_to_lut.py <NP3 폴더> [<다른 폴더> ...]      -> assets/luts/<이름>.cube (RECIPES 의 파일 중 찾은 것)
+사용법:  python tools/np3_to_lut.py [<NP3 폴더> ...]   (생략하면 local/recipes)      -> assets/luts/<이름>.cube (RECIPES 의 파일 중 찾은 것)
 """
 import colorsys
 import struct
@@ -117,7 +117,7 @@ def build(curve, blend, grade, sat=0.0):
 
 
 def main():
-    srcs = [Path(a) for a in sys.argv[1:]]  # NP3 가 들어 있는 폴더들
+    srcs = [Path(a) for a in sys.argv[1:]] or [ASSETS.parents[5] / "local" / "recipes"]  # 폴더를 안 주면 local/recipes
     for name, key in RECIPES.items():
         path = next((f for f in (d / f"{name}.NP3" for d in srcs) if f.exists()), None)
         if path is None:
