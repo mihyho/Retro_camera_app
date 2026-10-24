@@ -107,6 +107,9 @@ fun CameraScreen(
         }
     }
 
+    // 촬영 메인 화면(열려 있는 창이 없을 때): ▲▼는 줌, SET은 카메라 전환
+    val mainView = c.panel == null && !c.drawerOpen && !c.exposureOpen && c.discardAsk == null
+
     fun press(key: Key) {
         val ask = c.discardAsk
         when {
@@ -181,7 +184,8 @@ fun CameraScreen(
             onShoot = { c.discardAsk = null; c.panel = null; c.closeDrawer() },
             onPlay = { c.discardAsk = null; c.exposureOpen = false; c.closeDrawer(); c.playSingle = true; c.panel = Panel.Gallery },
             onShutter = onShutter,
-            setLabel = if (c.panel == null && !c.drawerOpen && !c.exposureOpen && c.discardAsk == null) "FLIP" else "SET",
+            setLabel = if (mainView) "FLIP" else "SET",
+            zoomKeys = mainView,
         ) {
             ViewfinderZone(
                 glView = glView, label = label, grid = s.grid, stampOn = s.stamp, stampText = c.stampText(),

@@ -96,6 +96,8 @@ fun CameraBody(
     onUp: () -> Unit, onDown: () -> Unit, onLeft: () -> Unit, onRight: () -> Unit, onSet: () -> Unit,
     onFilm: () -> Unit, onShoot: () -> Unit, onPlay: () -> Unit, onShutter: () -> Unit,
     setLabel: String = "SET",
+    /** 촬영 메인 화면: ▲▼가 확대(+)/축소(-)로 쓰인다는 걸 보여 주려고 +/- 로 그린다 */
+    zoomKeys: Boolean = false,
     lcd: @Composable ColumnScope.() -> Unit,
 ) {
     // 모드: FILM / SINGLE (라벨을 눌러 바꾼다)
@@ -109,7 +111,7 @@ fun CameraBody(
     val keysRow: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().height(164.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             KeyButton("MENU", 64.dp, 40.dp, onMenu)
-            DPad(156.dp, setLabel, onUp, onDown, onLeft, onRight, onSet)
+            DPad(156.dp, setLabel, zoomKeys, onUp, onDown, onLeft, onRight, onSet)
             KeyButton("EV", 64.dp, 40.dp, onExposure)
         }
     }
@@ -178,7 +180,7 @@ private fun KeyButton(text: String, w: Dp, h: Dp, onClick: () -> Unit) {
 
 /** 상하좌우 + 가운데 SET. 눌린 위치로 방향을 판정한다 */
 @Composable
-private fun DPad(size: Dp, setLabel: String, onUp: () -> Unit, onDown: () -> Unit, onLeft: () -> Unit, onRight: () -> Unit, onSet: () -> Unit) {
+private fun DPad(size: Dp, setLabel: String, zoomKeys: Boolean, onUp: () -> Unit, onDown: () -> Unit, onLeft: () -> Unit, onRight: () -> Unit, onSet: () -> Unit) {
     // pointerInput(Unit)의 블록은 처음 한 번만 만들어지므로, 콜백을 그대로 쓰면 처음 화면의 낡은 설정값을 계속 쓴다.
     // 항상 가장 최근 콜백을 부르도록 한다.
     val up by rememberUpdatedState(onUp)
@@ -231,6 +233,14 @@ private fun DPad(size: Dp, setLabel: String, onUp: () -> Unit, onDown: () -> Uni
             val w = this.size.width
             val c = Offset(w / 2f, w / 2f)
             for ((ux, uy) in listOf(0f to -1f, 0f to 1f, -1f to 0f, 1f to 0f)) {
+                if (zoomKeys && uy != 0f) {
+                    val m = c + Offset(0f, uy) * (w * .34f)
+                    val l = w * .06f
+                    val sw = 2.5.dp.toPx()
+                    drawLine(KeyText, Offset(m.x - l, m.y), Offset(m.x + l, m.y), strokeWidth = sw)
+                    if (uy < 0f) drawLine(KeyText, Offset(m.x, m.y - l), Offset(m.x, m.y + l), strokeWidth = sw)
+                    continue
+                }
                 val tip = c + Offset(ux, uy) * (w * .40f)
                 val mid = c + Offset(ux, uy) * (w * .30f)
                 val p = Offset(-uy, ux) * (w * .045f)
