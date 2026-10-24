@@ -124,7 +124,6 @@ class MainActivity : ComponentActivity() {
                 controller.showToast("전면 카메라를 찾을 수 없어요")
                 selector = CameraSelector.DEFAULT_BACK_CAMERA
             }
-            renderer.mirror = controller.lensFront // 셀카 미리보기는 거울처럼 좌우 반전(저장되는 사진은 반전하지 않는다)
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider { request -> renderer.onSurfaceRequested(request) }
             }
