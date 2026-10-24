@@ -110,6 +110,11 @@ fun CameraScreen(
     fun press(key: Key) {
         val ask = c.discardAsk
         when {
+            c.exposureOpen -> when (key) { // 노출 조정: ◀▼ 어둡게, ▶▲ 밝게, SET으로 확정
+                Key.LEFT, Key.DOWN -> c.moveExposure(-1)
+                Key.RIGHT, Key.UP -> c.moveExposure(1)
+                Key.SET -> c.exposureOpen = false
+            }
             ask != null -> when (key) {
                 Key.LEFT, Key.RIGHT -> c.discardAsk = 1 - ask
                 Key.SET -> if (ask == 0) c.discardAsk = null else if (c.deleteTarget != null) c.deletePhoto(entries.size) else c.discardRoll()
@@ -161,19 +166,20 @@ fun CameraScreen(
         (c.panel as? Panel.Viewer)?.let { c.closeViewer(it) } ?: run { c.panel = null }
     }
     BackHandler(enabled = c.drawerOpen && c.discardAsk == null) { c.closeDrawer() }
+    BackHandler(enabled = c.exposureOpen) { c.exposureOpen = false }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         CameraBody(
             mode = s.mode, playActive = c.panel == Panel.Gallery, filmName = filmName,
             onMode = c::setMode,
-            onMenu = { c.discardAsk = null; c.closeDrawer(); c.togglePanel(Panel.Settings) },
-            onDisp = { c.setGrid(!s.grid) },
+            onMenu = { c.discardAsk = null; c.exposureOpen = false; c.closeDrawer(); c.togglePanel(Panel.Settings) },
+            onExposure = { c.toggleExposure() },
             onUp = { press(Key.UP) }, onDown = { press(Key.DOWN) },
             onLeft = { press(Key.LEFT) }, onRight = { press(Key.RIGHT) },
             onSet = { press(Key.SET) },
-            onFilm = { if (c.drawerOpen) c.closeDrawer() else c.openDrawer() }, // 필름 키를 다시 누르면 선택을 취소하고 닫는다
+            onFilm = { if (c.drawerOpen) c.closeDrawer() else { c.exposureOpen = false; c.openDrawer() } }, // 필름 키를 다시 누르면 선택을 취소하고 닫는다
             onShoot = { c.discardAsk = null; c.panel = null; c.closeDrawer() },
-            onPlay = { c.discardAsk = null; c.closeDrawer(); c.playSingle = true; c.panel = Panel.Gallery },
+            onPlay = { c.discardAsk = null; c.exposureOpen = false; c.closeDrawer(); c.playSingle = true; c.panel = Panel.Gallery },
             onShutter = onShutter,
         ) {
             ViewfinderZone(
@@ -224,6 +230,11 @@ fun CameraScreen(
                             else -> "넣을 필름을 고르세요"
                         }
                         FilmMenu(hint, filmRows, c.menuIndex, onPick = { c.menuIndex = it; pickFilm(it) }, onClose = c::closeDrawer)
+                    }
+                    if (c.exposureOpen) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                            ExposureBar(c.exposureIndex, c.exposureRange, c.exposureStep)
+                        }
                     }
                     val ask = c.discardAsk
                     if (ask != null && c.deleteTarget != null) {

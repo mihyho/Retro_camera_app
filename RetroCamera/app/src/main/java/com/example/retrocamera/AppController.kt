@@ -100,6 +100,39 @@ class AppController(private val appContext: Context) {
     var zoomMax by mutableFloatStateOf(1f)
         private set
 
+    // ── 노출 보정 ──
+    /** 노출 조정 창이 열려 있는지(십자키가 노출을 조정한다) */
+    var exposureOpen by mutableStateOf(false)
+    /** 고른 노출 단계(카메라 단위). 0 = 보정 없음. 앱이 켜져 있는 동안만 기억한다 */
+    var exposureIndex by mutableIntStateOf(0)
+    /** 카메라가 지원하는 단계 범위와 한 단계의 EV 크기. 0..0 = 지원하지 않음 */
+    var exposureRange by mutableStateOf(0..0)
+        private set
+    var exposureStep by mutableFloatStateOf(0f)
+        private set
+    /** MainActivity가 카메라에 적용하는 함수 */
+    var onExposureChange: ((Int) -> Unit)? = null
+
+    fun updateExposure(range: IntRange, step: Float) {
+        exposureRange = range
+        exposureStep = step
+        exposureIndex = exposureIndex.coerceIn(range)
+    }
+
+    fun toggleExposure() {
+        if (exposureOpen) { exposureOpen = false; return }
+        if (panel != null || drawerOpen || discardAsk != null) return // 촬영 화면에서만
+        if (exposureRange.first == exposureRange.last) { showToast("이 카메라는 노출 조정을 지원하지 않아요"); return }
+        exposureOpen = true
+    }
+
+    fun moveExposure(delta: Int) {
+        val next = (exposureIndex + delta).coerceIn(exposureRange)
+        if (next == exposureIndex) return
+        exposureIndex = next
+        onExposureChange?.invoke(next)
+    }
+
     fun updateZoom(ratio: Float, max: Float) {
         zoomRatio = ratio
         zoomMax = max

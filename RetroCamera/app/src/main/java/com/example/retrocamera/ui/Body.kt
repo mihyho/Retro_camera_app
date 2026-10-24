@@ -89,7 +89,7 @@ private val monoStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 
 @Composable
 fun CameraBody(
     mode: Mode, playActive: Boolean, filmName: String,
-    onMode: (Mode) -> Unit, onMenu: () -> Unit, onDisp: () -> Unit,
+    onMode: (Mode) -> Unit, onMenu: () -> Unit, onExposure: () -> Unit,
     onUp: () -> Unit, onDown: () -> Unit, onLeft: () -> Unit, onRight: () -> Unit, onSet: () -> Unit,
     onFilm: () -> Unit, onShoot: () -> Unit, onPlay: () -> Unit, onShutter: () -> Unit,
     lcd: @Composable ColumnScope.() -> Unit,
@@ -101,12 +101,12 @@ fun CameraBody(
             ModeLabel("SINGLE", mode == Mode.SINGLE, Modifier.weight(1f), alignEnd = true) { onMode(Mode.SINGLE) }
         }
     }
-    // MENU / 십자키 / DISP
+    // MENU / 십자키 / 노출
     val keysRow: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().height(164.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             KeyButton("MENU", 64.dp, 40.dp, onMenu)
             DPad(156.dp, onUp, onDown, onLeft, onRight, onSet)
-            KeyButton("DISP", 64.dp, 40.dp, onDisp)
+            KeyButton("노출", 64.dp, 40.dp, onExposure)
         }
     }
     // 필름 / 셔터 / 촬영·재생

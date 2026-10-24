@@ -13,12 +13,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.Composable
@@ -233,5 +236,30 @@ fun GalleryMenu(
                 }
             }
         }
+    }
+}
+
+/** 노출 조정 창: 촬영 화면 아래에 겹쳐 뜬다. ◀▶(▲▼)로 조정, SET 또는 노출 키로 확정 */
+@Composable
+fun ExposureBar(index: Int, range: IntRange, step: Float) {
+    val span = (range.last - range.first).coerceAtLeast(1).toFloat()
+    Column(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = .72f)).padding(horizontal = 14.dp, vertical = 10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("노출  Exposure", color = PFLight.Text, style = mono.copy(fontSize = 13.sp), modifier = Modifier.weight(1f))
+            Text(String.format("%+.1f EV", index * step), color = PFLight.Accent, style = mono.copy(fontSize = 15.sp))
+        }
+        Canvas(Modifier.fillMaxWidth().padding(top = 8.dp).height(22.dp)) {
+            val y = size.height / 2
+            drawLine(PFLight.Neutral400, Offset(0f, y), Offset(size.width, y), strokeWidth = 2f)
+            // 1EV마다 눈금, 0EV는 길게
+            val lo = kotlin.math.ceil(range.first * step).toInt(); val hi = kotlin.math.floor(range.last * step).toInt()
+            for (k in lo..hi) {
+                val x = (k / step - range.first) / span * size.width
+                val h = if (k == 0) 9f else 5f
+                drawLine(PFLight.Neutral700, Offset(x, y - h), Offset(x, y + h), strokeWidth = if (k == 0) 3f else 2f)
+            }
+            drawCircle(PFLight.Accent, radius = 8f, center = Offset((index - range.first) / span * size.width, y))
+        }
+        Text("◀▶ 조정 · SET 또는 노출 키로 확정", color = PFLight.Neutral700, style = hintStyle, modifier = Modifier.padding(top = 6.dp))
     }
 }

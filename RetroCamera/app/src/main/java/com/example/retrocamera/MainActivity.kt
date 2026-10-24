@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity() {
         glView = GLSurfaceView(this)
         glView.setEGLContextClientVersion(3)
         renderer = LutRenderer(glView, controller.lutFor(controller.currentFilm), ContextCompat.getMainExecutor(this))
+        controller.onExposureChange = { camera?.cameraControl?.setExposureCompensationIndex(it) }
         renderer.onContextRecreated = { if (imageCapture != null) startCamera() }
         glView.setRenderer(renderer)
         glView.renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
@@ -136,6 +137,10 @@ class MainActivity : ComponentActivity() {
             provider.unbindAll()
             val cam = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture)
             camera = cam
+            cam.cameraInfo.exposureState.let { es ->
+                controller.updateExposure(es.exposureCompensationRange.lower..es.exposureCompensationRange.upper, es.exposureCompensationStep.toFloat())
+            }
+            cam.cameraControl.setExposureCompensationIndex(controller.exposureIndex) // 카메라를 다시 연결해도 고른 노출을 유지
             cam.cameraInfo.zoomState.observe(this) { zs ->
                 zoomTarget = zs.zoomRatio
                 controller.updateZoom(zs.zoomRatio, zs.maxZoomRatio)
