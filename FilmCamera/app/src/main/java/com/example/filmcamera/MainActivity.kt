@@ -34,6 +34,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var glView: GLSurfaceView
     private lateinit var renderer: LutRenderer
     private var imageCapture: ImageCapture? = null
+    private var preview: Preview? = null
     private var camera: Camera? = null
 
     /** 핀치가 이어지는 동안 카메라가 줌 상태를 알려 주기 전에 다음 이벤트가 오므로, 목표 배율을 따로 들고 있는다 */
@@ -117,6 +118,7 @@ class MainActivity : ComponentActivity() {
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider { request -> renderer.onSurfaceRequested(request) }
             }
+            this.preview = preview
             // 4:3, 최대 약 12MP. 프리뷰 영역(3:4)과 같은 비율이라 보이는 그대로 찍힌다.
             val capture = ImageCapture.Builder()
                 .setResolutionSelector(
@@ -129,6 +131,7 @@ class MainActivity : ComponentActivity() {
                 )
                 .build()
             imageCapture = capture
+            applyDisplayRotation()
             provider.unbindAll()
             val cam = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture)
             camera = cam
@@ -206,5 +209,17 @@ class MainActivity : ComponentActivity() {
                 controller.showToast("촬영 실패")
             }
         })
+    }
+
+    /** 화면을 돌려도 액티비티를 다시 만들지 않으므로(configChanges), 미리보기/촬영 방향을 직접 맞춘다 */
+    private fun applyDisplayRotation() {
+        val r = display?.rotation ?: return
+        preview?.targetRotation = r
+        imageCapture?.targetRotation = r
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyDisplayRotation()
     }
 }

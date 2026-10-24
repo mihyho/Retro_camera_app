@@ -12,8 +12,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import android.content.res.Configuration
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -79,31 +85,52 @@ fun CameraBody(
     onFilm: () -> Unit, onShoot: () -> Unit, onPlay: () -> Unit, onShutter: () -> Unit,
     lcd: @Composable ColumnScope.() -> Unit,
 ) {
-    Column(
-        Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(BodyTop, BodyBottom)))
-            .windowInsetsPadding(WindowInsets.systemBars).padding(horizontal = 16.dp),
-    ) {
-        Text("PHONE_FILM", color = LabelGray, style = labelStyle.copy(letterSpacing = .3.em), modifier = Modifier.padding(top = 8.dp, bottom = 6.dp))
-        lcd()
-
-        // 모드: FILM / SINGLE (라벨을 눌러 바꾼다)
-        Row(Modifier.fillMaxWidth().padding(top = 6.dp).height(32.dp), verticalAlignment = Alignment.CenterVertically) {
+    // 모드: FILM / SINGLE (라벨을 눌러 바꾼다)
+    val modeRow: @Composable () -> Unit = {
+        Row(Modifier.fillMaxWidth().height(32.dp), verticalAlignment = Alignment.CenterVertically) {
             ModeLabel("FILM", mode == Mode.FILM, Modifier.weight(1f)) { onMode(Mode.FILM) }
             ModeLabel("SINGLE", mode == Mode.SINGLE, Modifier.weight(1f), alignEnd = true) { onMode(Mode.SINGLE) }
         }
-        // MENU / 십자키 / DISP
+    }
+    // MENU / 십자키 / DISP
+    val keysRow: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().height(144.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             KeyButton("MENU", 64.dp, 40.dp, onMenu)
             DPad(136.dp, onUp, onDown, onLeft, onRight, onSet)
             KeyButton("DISP", 64.dp, 40.dp, onDisp)
         }
-        // 필름 / 촬영·재생 / 셔터
+    }
+    // 필름 / 셔터 / 촬영·재생
+    val bottomRow: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().height(84.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) { FilmKey(filmName, onFilm) }
             Shutter(onShutter)
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) { Segmented(playActive, onShoot, onPlay) }
         }
-        Spacer(Modifier.height(28.dp)) // 조작부를 위로 올려 아래쪽에 여유를 둔다
+    }
+    val bg = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(BodyTop, BodyBottom)))
+        .windowInsetsPadding(WindowInsets.systemBars).windowInsetsPadding(WindowInsets.displayCutout)
+
+    if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+        // 가로: 왼쪽 LCD, 오른쪽 조작부
+        Row(bg.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                Text("PHONE_FILM", color = LabelGray, style = labelStyle.copy(letterSpacing = .3.em), modifier = Modifier.padding(bottom = 4.dp))
+                lcd()
+            }
+            Column(Modifier.width(340.dp).fillMaxHeight(), verticalArrangement = Arrangement.SpaceEvenly) {
+                modeRow(); keysRow(); bottomRow()
+            }
+        }
+    } else {
+        Column(bg.padding(horizontal = 16.dp)) {
+            Text("PHONE_FILM", color = LabelGray, style = labelStyle.copy(letterSpacing = .3.em), modifier = Modifier.padding(top = 8.dp, bottom = 6.dp))
+            lcd()
+            Box(Modifier.padding(top = 6.dp)) { modeRow() }
+            Box(Modifier.offset(y = (-14).dp)) { keysRow() }
+            bottomRow()
+            Spacer(Modifier.height(28.dp)) // 조작부를 위로 올려 아래쪽에 여유를 둔다
+        }
     }
 }
 

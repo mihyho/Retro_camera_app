@@ -46,6 +46,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import android.content.res.Configuration
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -78,8 +81,13 @@ fun ViewfinderZone(
 ) {
     BoxWithConstraints(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         // LCD 프레임: 얇은 검은 베젤 6dp. 3:4 화면이 남는 영역 안에 들어가도록 폭을 정한다.
-        val previewW = minOf(maxWidth - 12.dp, (maxHeight - 12.dp) * 3f / 4f)
-        val previewH = previewW * 4f / 3f
+        val land = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val previewW: Dp; val previewH: Dp
+        if (land) { // 가로: 4:3
+            previewH = minOf(maxHeight - 12.dp, (maxWidth - 12.dp) * 3f / 4f); previewW = previewH * 4f / 3f
+        } else {
+            previewW = minOf(maxWidth - 12.dp, (maxHeight - 12.dp) * 3f / 4f); previewH = previewW * 4f / 3f
+        }
         val bezel = Color(0xFF050506)
 
         Box(
