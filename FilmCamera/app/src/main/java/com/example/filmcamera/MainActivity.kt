@@ -92,6 +92,24 @@ class MainActivity : ComponentActivity() {
         super.onPause()
     }
 
+    /** 볼륨 버튼으로 촬영(설정에서 끌 수 있다). 켜져 있으면 시스템 볼륨 조절은 막는다 */
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
+        if ((keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP || keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN) &&
+            controller.state.volumeShutter
+        ) {
+            if (event.repeatCount == 0) takePhoto() // 길게 눌러도 한 장만
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: android.view.KeyEvent): Boolean {
+        if ((keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP || keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN) &&
+            controller.state.volumeShutter
+        ) return true
+        return super.onKeyUp(keyCode, event)
+    }
+
     private fun startCamera() {
         val providerFuture = ProcessCameraProvider.getInstance(this)
         providerFuture.addListener({
@@ -139,7 +157,7 @@ class MainActivity : ComponentActivity() {
 
     private fun takePhoto() {
         // 패널(현상/사진/설정)이 떠 있으면 셔터는 카메라 화면으로 돌아오기만 한다
-        if (controller.panel != null) { controller.panel = null; return }
+        if (controller.panel != null || controller.drawerOpen || controller.discardAsk != null) { controller.panel = null; controller.closeDrawer(); controller.discardAsk = null; return }
         val capture = imageCapture ?: return
         val s = controller.state
         val mode = s.mode

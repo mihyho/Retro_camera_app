@@ -54,8 +54,21 @@ object RollEngine {
     fun referencedPrivateFiles(s: AppState): Set<String> =
         (s.roll?.shots.orEmpty() + s.devRolls.filter { !it.exported }.flatMap { it.shots }).map { it.file }.toSet()
 
+    /**
+     * 십자키 좌/우로 고를 다음 필름. 롤이 장전돼 있으면 null(잠김).
+     * 필름 모드에서 아직 고른 필름이 없으면 첫 필름(▶) 또는 마지막 필름(◀)부터 시작한다.
+     */
+    fun nextFilm(s: AppState, pending: Film?, step: Int): Film? {
+        if (isLocked(s)) return null
+        val all = Film.entries
+        val cur = if (s.mode == Mode.SINGLE) s.singleFilm else pending
+        if (cur == null) return if (step > 0) all.first() else all.last()
+        return all[(all.indexOf(cur) + step + all.size) % all.size]
+    }
+
     fun pendingExports(s: AppState): List<DevelopedRoll> = s.devRolls.filter { !it.exported }
 
     fun setGrid(s: AppState, v: Boolean) = s.copy(grid = v)
     fun setStamp(s: AppState, v: Boolean) = s.copy(stamp = v)
+    fun setVolumeShutter(s: AppState, v: Boolean) = s.copy(volumeShutter = v)
 }

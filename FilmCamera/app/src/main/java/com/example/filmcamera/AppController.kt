@@ -58,6 +58,18 @@ class AppController(private val appContext: Context) {
         private set
     var panel by mutableStateOf<Panel?>(null)
 
+    /** 디카 메뉴(필름/설정/재생)에서 십자키로 고른 줄. 메뉴를 새로 열 때 CameraScreen이 처음 위치로 되돌린다 */
+    var menuIndex by mutableIntStateOf(0)
+    fun moveMenu(delta: Int, count: Int) { if (count > 0) menuIndex = (menuIndex + delta).coerceIn(0, count - 1) }
+
+    /** 필름 버리기 확인 창: null = 닫힘, 0 = 취소 선택(기본), 1 = 버리기 선택 */
+    var discardAsk by mutableStateOf<Int?>(null)
+
+    fun askDiscard() { discardAsk = 0 }
+
+    /** 재생: true = 사진 한 장 보기, false = 3열 목록 */
+    var playSingle by mutableStateOf(true)
+
     /** 카메라 확대 상태(실제 카메라가 알려 준 값). 확대를 못 하는 카메라면 최대 배율이 1 */
     var zoomRatio by mutableFloatStateOf(1f)
         private set
@@ -106,6 +118,14 @@ class AppController(private val appContext: Context) {
     fun takeFilm(film: Film) {
         if (state.mode == Mode.SINGLE) commit(RollEngine.selectSingleFilm(state, film)) else pendingFilm = film
         drawerOpen = false
+    }
+
+    /** 십자키 좌우: 다음/이전 필름으로. 롤이 장전돼 있으면 잠금 안내만 한다 */
+    fun cycleFilm(step: Int) {
+        val next = RollEngine.nextFilm(state, pendingFilm, step)
+        if (next == null) { lockedFilmTapped(); return }
+        takeFilm(next)
+        showToast(next.displayName)
     }
 
     /** 롤이 장전된 채 다른 필름을 누른 경우 */
@@ -187,6 +207,7 @@ class AppController(private val appContext: Context) {
      * 남은 파일은 다음 실행 때 cleanOrphanFiles()가 정리한다. 단일 촬영/현상된 롤/설정은 건드리지 않는다.
      */
     fun discardRoll() {
+        discardAsk = null
         val roll = state.roll ?: return
         val files = roll.shots.map { it.file }
         val name = roll.film.displayName
@@ -226,6 +247,7 @@ class AppController(private val appContext: Context) {
 
     fun setGrid(v: Boolean) = commit(RollEngine.setGrid(state, v))
     fun setStamp(v: Boolean) = commit(RollEngine.setStamp(state, v))
+    fun setVolumeShutter(v: Boolean) = commit(RollEngine.setVolumeShutter(state, v))
 
     // ── 디버그 전용(설정 화면의 "프로토타입 테스트") ──
 

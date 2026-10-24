@@ -65,7 +65,7 @@ fun DevelopPanel(roll: DevelopedRoll, onNewFilm: () -> Unit, onSingle: () -> Uni
         )
         Text(
             "한 롤을 다 찍었어요", color = PFLight.Text,
-            style = TextStyle(fontFamily = PFFonts.Caprasimo, fontSize = 27.sp, lineHeight = 30.sp, letterSpacing = (-.015).em),
+            style = TextStyle(fontFamily = PFFonts.Heading, fontSize = 27.sp, lineHeight = 30.sp, letterSpacing = (-.015).em),
         )
         Text(
             if (roll.exported) "이제 사진을 볼 수 있어요. 필름 잠금도 풀렸으니 새 필름을 골라 넣으세요."
@@ -74,7 +74,7 @@ fun DevelopPanel(roll: DevelopedRoll, onNewFilm: () -> Unit, onSingle: () -> Uni
             style = TextStyle(fontFamily = PFFonts.Figtree, fontSize = 13.sp, lineHeight = 19.sp),
         )
         // 밀착 인화지
-        Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(PFLight.Text).padding(8.dp)) {
+        Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(PFLight.Inverse).padding(8.dp)) {
             LazyVerticalGrid(
                 GridCells.Fixed(6), Modifier.fillMaxSize(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),

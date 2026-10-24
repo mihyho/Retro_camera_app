@@ -177,4 +177,63 @@ class RollEngineTest {
         // 버리면 진행 중이던 3장은 참조에서 빠진다(고아 파일로 정리 대상)
         assertEquals(24, RollEngine.referencedPrivateFiles(RollEngine.discardRoll(s)).size)
     }
+
+    @Test
+    fun volumeShutterDefaultsOnAndSurvivesRestart() {
+        assertTrue("기본값은 켬", AppState().volumeShutter)
+        val f = File.createTempFile("state", ".json")
+        StateStore(f).save(RollEngine.setVolumeShutter(AppState(), false))
+        assertFalse("끈 설정이 재시작 뒤에도 유지된다", StateStore(f).load().volumeShutter)
+        f.delete()
+    }
+
+    @Test
+    fun oldStateFileWithoutVolumeShutterReadsAsOn() {
+        // 이 설정이 생기기 전에 저장된 상태 파일
+        val old = """{"version":1,"mode":"FILM","roll":null,"singleFilm":"gold","singleShots":[],"devRolls":[],"grid":false,"stamp":true}"""
+        val s = StateStore.fromJson(org.json.JSONObject(old))
+        assertTrue(s.volumeShutter)
+        assertEquals(Mode.FILM, s.mode)
+    }
+
+    @Test
+    fun nextFilmIsNullWhileRollIsLoaded() {
+        val s = RollEngine.loadRoll(AppState(), Film.GOLD, 24, 1)
+        assertNull("롤이 있으면 필름을 바꿀 수 없다", RollEngine.nextFilm(s, null, 1))
+        // 단일 모드에서는 롤이 있어도 자유롭다
+        assertNotNull(RollEngine.nextFilm(RollEngine.setMode(s, Mode.SINGLE), null, 1))
+    }
+
+    @Test
+    fun nextFilmWrapsAroundInSingleMode() {
+        val all = Film.entries
+        val first = AppState(mode = Mode.SINGLE, singleFilm = all.first())
+        val last = AppState(mode = Mode.SINGLE, singleFilm = all.last())
+        assertEquals(all.last(), RollEngine.nextFilm(first, null, -1))
+        assertEquals(all.first(), RollEngine.nextFilm(last, null, 1))
+        assertEquals(all[1], RollEngine.nextFilm(first, null, 1))
+    }
+
+    @Test
+    fun nextFilmStartsFromTheEndsWhenNothingIsPicked() {
+        val s = AppState(mode = Mode.FILM)
+        assertEquals("첫 ▶ 는 첫 필름(건너뛰지 않는다)", Film.entries.first(), RollEngine.nextFilm(s, null, 1))
+        assertEquals(Film.entries.last(), RollEngine.nextFilm(s, null, -1))
+        assertEquals("고른 필름이 있으면 그 다음", Film.entries[1], RollEngine.nextFilm(s, Film.entries.first(), 1))
+    }
+
+    @Test
+    fun galleryEntriesAreOldestFirstAndSkipTheRunningRoll() {
+        var s = RollEngine.loadRoll(AppState(), Film.FOREST, 24, 1)
+        for (i in 1..24) s = RollEngine.recordFilmShot(s, Shot(Film.FOREST, "rolls/pending/$i.jpg", 1000L + i), 50).first // 현상된 롤: 1001..1024
+        val singles = listOf(Shot(Film.GOLD, "u2", 1500L, "u2"), Shot(Film.TUNGSTEN, "u1", 500L, "u1")) // 최신순으로 저장됨
+        val e = galleryEntries(s.devRolls, singles)
+        assertEquals(26, e.size)
+        assertEquals("가장 오래된 것이 앞", 500L, e.first().shot.takenAt)
+        assertEquals("가장 최근이 뒤", 1500L, e.last().shot.takenAt)
+        assertEquals(e.map { it.shot.takenAt }, e.map { it.shot.takenAt }.sorted())
+        // 아직 찍는 중인 롤의 사진은 들어가지 않는다
+        val running = RollEngine.recordFilmShot(RollEngine.loadRoll(AppState(), Film.GOLD, 24, 2), Shot(Film.GOLD, "x.jpg", 9L), 9).first
+        assertTrue(galleryEntries(running.devRolls, running.singleShots).isEmpty())
+    }
 }

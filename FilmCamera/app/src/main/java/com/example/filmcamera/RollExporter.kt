@@ -70,7 +70,10 @@ object RollExporter {
 
 /** 사진 썸네일. 내보내기 전에는 비공개 파일, 후에는 갤러리 uri에서 읽는다. */
 object ThumbLoader {
-    private val cache = LruCache<String, Bitmap>(48)
+    // 장수가 아니라 바이트로 한도를 둔다: 재생의 한 장 보기는 큰 그림(약 5MB)을 넣으므로 장수 기준이면 수백 MB가 된다
+    private val cache = object : LruCache<String, Bitmap>(24 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap) = value.byteCount
+    }
 
     fun load(context: Context, shot: Shot, px: Int): Bitmap? {
         val uri = shot.uri

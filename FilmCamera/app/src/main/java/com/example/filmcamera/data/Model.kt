@@ -55,4 +55,6 @@ data class AppState(
     val devRolls: List<DevelopedRoll> = emptyList(),
     val grid: Boolean = false,
     val stamp: Boolean = true,
+    /** 볼륨 버튼으로 촬영(기본 켬) */
+    val volumeShutter: Boolean = true,
 )

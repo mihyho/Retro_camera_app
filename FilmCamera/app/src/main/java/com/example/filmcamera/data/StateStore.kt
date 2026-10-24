@@ -53,6 +53,7 @@ class StateStore(private val file: File) {
             })
             put("grid", s.grid)
             put("stamp", s.stamp)
+            put("volumeShutter", s.volumeShutter)
         }
 
         fun fromJson(o: JSONObject): AppState = AppState(
@@ -73,6 +74,7 @@ class StateStore(private val file: File) {
             },
             grid = o.getBoolean("grid"),
             stamp = o.getBoolean("stamp"),
+            volumeShutter = o.optBoolean("volumeShutter", true), // 옛 상태 파일에는 없으므로 기본 켬
         )
 
         private fun rollJson(r: Roll) = JSONObject().apply {
