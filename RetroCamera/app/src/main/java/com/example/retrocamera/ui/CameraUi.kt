@@ -253,7 +253,7 @@ fun BottomBar(c: AppController, landscape: Boolean, onLibrary: () -> Unit, onShu
 // ───────────────────────── 뷰파인더 ─────────────────────────
 
 @Composable
-fun Viewfinder(c: AppController, glView: GLSurfaceView, onZoomBy: (Float) -> Unit, onZoomToggle: () -> Unit, onLoad: () -> Unit) {
+fun Viewfinder(c: AppController, glView: GLSurfaceView, onZoomBy: (Float) -> Unit, onZoomToggle: () -> Unit, onZoomStep: () -> Unit, onLoad: () -> Unit) {
     val s = c.state
     val noFilm = s.mode == Mode.FILM && s.roll == null
     val gestures = c.perm == AppController.Perm.GRANTED && !c.drawerOpen && !noFilm && c.panel == null && !c.loadOpen
@@ -270,7 +270,7 @@ fun Viewfinder(c: AppController, glView: GLSurfaceView, onZoomBy: (Float) -> Uni
                         shadow = androidx.compose.ui.graphics.Shadow(Color(0x99FF781E), blurRadius = 8f)),
                     Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = if (c.exposureOpen) 86.dp else 10.dp), softWrap = false,
                 )
-                ZoomHud(c.zoomRatio, Modifier.align(Alignment.BottomCenter).padding(bottom = if (c.exposureOpen) 92.dp else 12.dp))
+                if (c.zoomMax > 1.01f) ZoomHud(c.zoomRatio, onZoomStep, Modifier.align(Alignment.BottomCenter).padding(bottom = if (c.exposureOpen) 92.dp else 12.dp))
             }
             if (c.drawerOpen) FilmGrid(c)
             if (noFilm) NoFilmOverlay(onLoad)
@@ -296,18 +296,23 @@ private fun GestureLayer(onZoomBy: (Float) -> Unit, onZoomToggle: () -> Unit, on
                 val threshold = 60.dp.toPx()
                 awaitEachGesture {
                     val first = awaitFirstDown(requireUnconsumed = false)
-                    var dx = 0f; var dy = 0f; var multi = false; var prev = 0f
+                    var dx = 0f; var dy = 0f; var multi = false; var prev = 0f; var swiping = false
+                    val slop = viewConfiguration.touchSlop
                     do {
                         val ev = awaitPointerEvent()
                         val down = ev.changes.filter { it.pressed }
                         if (down.size >= 2) {
+                            if (swiping) continue // 좌우로 넘기는 중에 닿은 두 번째 손가락은 확대로 치지 않는다
                             multi = true
                             val d = (down[0].position - down[1].position).getDistance()
                             if (prev > 0f && d > 0f) zoom.value(d / prev)
                             prev = d
                         } else {
                             prev = 0f
-                            if (!multi && down.size == 1) { dx = down[0].position.x - first.position.x; dy = down[0].position.y - first.position.y }
+                            if (!multi && down.size == 1) {
+                                dx = down[0].position.x - first.position.x; dy = down[0].position.y - first.position.y
+                                if (abs(dx) > slop && abs(dx) > abs(dy)) swiping = true
+                            }
                         }
                     } while (ev.changes.any { it.pressed })
                     if (!multi && abs(dx) > threshold && abs(dx) > abs(dy) * 1.5f) swipe.value(if (dx < 0) 1 else -1)
@@ -342,15 +347,11 @@ private fun FilmChip(film: Film, modifier: Modifier) {
 }
 
 @Composable
-private fun ZoomHud(zoom: Float, modifier: Modifier) {
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(zoom) {
-        visible = zoom > 1.02f
-    }
-    if (!visible) return
+private fun ZoomHud(zoom: Float, onClick: () -> Unit, modifier: Modifier) {
     Text(
         ZoomMath.format(zoom), Ds.Ink, t13.copy(fontWeight = FontWeight.Medium),
-        modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = .88f)).padding(horizontal = 10.dp, vertical = 3.dp),
+        modifier.clip(RoundedCornerShape(50)).background(if (zoom > 1.02f) Ds.Accent else Color.White.copy(alpha = .88f))
+            .tap(onClick = onClick).padding(horizontal = 12.dp, vertical = 6.dp),
     )
 }
 

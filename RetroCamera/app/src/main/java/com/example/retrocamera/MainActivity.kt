@@ -94,7 +94,7 @@ class MainActivity : ComponentActivity() {
                     if (controller.drawerOpen) renderer.setGrid(tiles)
                 } else renderer.setGrid(null)
             }
-            CameraScreen(controller, glView, onShutter = ::takePhoto, onZoomBy = ::zoomBy, onZoomToggle = ::zoomToggle)
+            CameraScreen(controller, glView, onShutter = ::takePhoto, onZoomBy = ::zoomBy, onZoomToggle = ::zoomToggle, onZoomStep = ::zoomStep)
         }
 
         if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
@@ -188,6 +188,14 @@ class MainActivity : ComponentActivity() {
         val cam = camera ?: return
         val zs = cam.cameraInfo.zoomState.value ?: return
         zoomTarget = ZoomMath.pinch(zoomTarget, scale, zs.minZoomRatio, zs.maxZoomRatio)
+        cam.cameraControl.setZoomRatio(zoomTarget)
+    }
+
+    /** 배율 버튼: 1배 -> 2배 -> 3배 -> 5배 -> 1배 (카메라가 지원하는 범위까지) */
+    private fun zoomStep() {
+        val cam = camera ?: return
+        val zs = cam.cameraInfo.zoomState.value ?: return
+        zoomTarget = ZoomMath.nextStep(zs.zoomRatio, zs.minZoomRatio, zs.maxZoomRatio)
         cam.cameraControl.setZoomRatio(zoomTarget)
     }
 

@@ -35,4 +35,19 @@ class ZoomMathTest {
         assertEquals("2.5×", ZoomMath.format(2.5f))
         assertEquals("10×", ZoomMath.format(10f))
     }
+
+    @Test
+    fun zoomButtonStepsUpThenWrapsToMin() {
+        assertEquals(2f, ZoomMath.nextStep(1f, 1f, 8f), 0f)
+        assertEquals(3f, ZoomMath.nextStep(2f, 1f, 8f), 0f)
+        assertEquals(5f, ZoomMath.nextStep(3.4f, 1f, 8f), 0f)
+        assertEquals(1f, ZoomMath.nextStep(5f, 1f, 8f), 0f)
+        assertEquals(1f, ZoomMath.nextStep(2f, 1f, 2f), 0f) // 2배까지만 되는 카메라
+    }
+
+    @Test
+    fun wideCameraReturnsToOneX() {
+        assertEquals(1f, ZoomMath.nextStep(5f, 0.6f, 8f), 0f)
+        assertEquals(1f, ZoomMath.nextStep(0.6f, 0.6f, 8f), 0f) // 0.6배에서 누르면 다음 단계인 1배
+    }
 }
