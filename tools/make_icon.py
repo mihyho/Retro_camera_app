@@ -1,5 +1,5 @@
 """
-앱 아이콘(레트로 컴팩트 카메라)을 만든다: 같은 도형 목록으로 어댑티브 아이콘용 벡터(XML)와 미리보기 PNG를 함께 낸다.
+앱 아이콘(필름 옐로우 바탕의 컴팩트 카메라)을 만든다: 같은 도형 목록으로 어댑티브 아이콘용 벡터(XML)와 미리보기 PNG를 함께 낸다.
 사용법:  python tools/make_icon.py [미리보기.png]
 도형 좌표는 108x108 안이고, 어댑티브 아이콘 안전 영역(중앙 66)에 카메라가 들어간다.
 """
@@ -7,24 +7,19 @@ import sys
 from pathlib import Path
 
 RES = Path(__file__).resolve().parent.parent / "RetroCamera" / "app" / "src" / "main" / "res"
-BG = "#1F1F23"
+BG = "#E8B84A"  # 필름 옐로우(앱 UI의 포인트색)
+INK = "#1C1C1E"
 # (종류, 좌표, 색, 모서리 반지름) — rect: x0,y0,x1,y1 / circle: cx,cy,r
 SHAPES = [
-    ("rect", (22, 38, 86, 78), "#D8D8D4", 6),      # 은색 몸통
-    ("rect", (22, 38, 86, 47), "#B9B9B5", 6),      # 윗면(어두운 은색)
-    ("rect", (22, 43, 86, 47), "#B9B9B5", 0),
-    ("rect", (22, 70, 86, 78), "#2A2A2E", 6),      # 아래 검은 띠(가죽)
-    ("rect", (22, 70, 86, 73), "#2A2A2E", 0),
-    ("rect", (66, 33, 76, 38), "#FF7A1A", 1.5),    # 셔터 버튼
-    ("rect", (28, 42, 38, 48), "#F5E9B8", 1.5),    # 플래시 창
-    ("rect", (42, 42, 50, 48), "#2A2A2E", 1.5),    # 뷰파인더 창
-    ("rect", (70, 52, 80, 56), "#2A2A2E", 1),      # 작은 LCD/표시창
-    ("circle", (50, 60, 15), "#9A9A96", 0),        # 렌즈 외곽
-    ("circle", (50, 60, 12.5), "#17171A", 0),
-    ("circle", (50, 60, 8.5), "#27395B", 0),
-    ("circle", (50, 60, 4.2), "#101012", 0),
-    ("circle", (46.5, 56.5, 2.4), "#B3FFFFFF", 0),  # 렌즈 반사
-    ("circle", (31, 56, 1.8), "#E0402B", 0),       # 빨간 표시등
+    ("rect", (22, 38, 86, 80), INK, 9),            # 몸통
+    ("rect", (34, 31, 52, 41), INK, 3),            # 윗면 돌출부(뷰파인더)
+    ("rect", (64, 32, 76, 38), "#FFFFFF", 2),      # 셔터 버튼
+    ("circle", (54, 59, 16), "#FFFFFF", 0),        # 렌즈 바깥 링
+    ("circle", (54, 59, 13), INK, 0),
+    ("circle", (54, 59, 9), "#E8B84A", 0),         # 필름 옐로우 렌즈
+    ("circle", (54, 59, 4.5), INK, 0),
+    ("circle", (50.5, 55.5, 2.2), "#B3FFFFFF", 0),  # 렌즈 반사
+    ("circle", (30, 47, 2.4), "#FFFFFF", 0),       # 플래시
 ]
 
 
@@ -47,7 +42,7 @@ def argb(c):
 
 def vector_xml():
     out = ['<?xml version="1.0" encoding="utf-8"?>',
-           "<!-- 레트로 컴팩트 카메라 (tools/make_icon.py 로 생성). 어댑티브 아이콘 안전 영역(중앙 66dp) 안에 그렸다 -->",
+           "<!-- 컴팩트 카메라 (tools/make_icon.py 로 생성). 어댑티브 아이콘 안전 영역(중앙 66dp) 안에 그렸다 -->",
            '<vector xmlns:android="http://schemas.android.com/apk/res/android"',
            '    android:width="108dp"', '    android:height="108dp"',
            '    android:viewportWidth="108"', '    android:viewportHeight="108">']
