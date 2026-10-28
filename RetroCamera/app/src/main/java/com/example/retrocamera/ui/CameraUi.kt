@@ -261,7 +261,7 @@ fun Viewfinder(c: AppController, glView: GLSurfaceView, onZoomBy: (Float) -> Uni
         AndroidView({ glView }, Modifier.fillMaxSize())
         if (c.perm == AppController.Perm.GRANTED) {
             if (gestures) GestureLayer(onZoomBy, onZoomToggle, onSwipe = { c.cycleFilm(it) })
-            if (s.grid && !c.drawerOpen) GridLines()
+            if (s.grid && !c.drawerOpen && !noFilm) GridLines()
             if (!c.drawerOpen && !noFilm) {
                 FilmChip(c.currentFilm, Modifier.align(Alignment.TopStart).padding(8.dp))
                 if (s.stamp) Text(
@@ -270,12 +270,11 @@ fun Viewfinder(c: AppController, glView: GLSurfaceView, onZoomBy: (Float) -> Uni
                         shadow = androidx.compose.ui.graphics.Shadow(Color(0x99FF781E), blurRadius = 8f)),
                     Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = if (c.exposureOpen) 86.dp else 10.dp), softWrap = false,
                 )
-                OriginalButton(c, Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = if (c.exposureOpen) 90.dp else 8.dp))
                 ZoomHud(c.zoomRatio, Modifier.align(Alignment.BottomCenter).padding(bottom = if (c.exposureOpen) 92.dp else 12.dp))
             }
             if (c.drawerOpen) FilmGrid(c)
-            if (c.exposureOpen) ExposurePanel(c, Modifier.align(Alignment.BottomCenter))
             if (noFilm) NoFilmOverlay(onLoad)
+            if (c.exposureOpen) ExposurePanel(c, Modifier.align(Alignment.BottomCenter))
             Shot(c.flashTrigger)
             if (c.screenFlash) Box(Modifier.fillMaxSize().background(Color.White))
         } else {
@@ -340,24 +339,6 @@ private fun FilmChip(film: Film, modifier: Modifier) {
         Box(Modifier.size(6.dp).clip(CircleShape).background(Color(film.accent)))
         Text(filmTitle(film), Ds.Ink, t11, Modifier.padding(start = 5.dp), softWrap = false)
     }
-}
-
-/** 누르고 있는 동안만 필터를 끈다(비교용, 저장 사진에는 영향 없음) */
-@Composable
-private fun OriginalButton(c: AppController, modifier: Modifier) {
-    Box(
-        modifier.height(28.dp).clip(RoundedCornerShape(14.dp))
-            .background(if (c.holdOriginal) Ds.Accent else Color.White.copy(alpha = .88f))
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown()
-                    c.holdOriginal = true
-                    waitForUpOrCancellation()
-                    c.holdOriginal = false
-                }
-            }.padding(horizontal = 12.dp),
-        contentAlignment = Alignment.Center,
-    ) { Text("원본", Ds.Ink, t13, softWrap = false) }
 }
 
 @Composable

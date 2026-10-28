@@ -154,8 +154,6 @@ class AppController(private val appContext: Context) {
         onFlashChange?.invoke(flashOn)
     }
 
-    /** "원본" 버튼을 누르고 있는 동안 필터를 끈다(미리보기만, 저장 사진에는 영향 없음) */
-    var holdOriginal by mutableStateOf(false)
     var onZoomReset: (() -> Unit)? = null
 
     // ── 노출 보정 ──

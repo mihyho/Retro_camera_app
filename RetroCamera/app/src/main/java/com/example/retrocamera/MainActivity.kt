@@ -82,11 +82,10 @@ class MainActivity : ComponentActivity() {
         glView.renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
 
         setContent {
-            // 필름(모드)이 바뀌면 프리뷰 LUT도 교체. "원본"을 누르고 있는 동안은 필터와 명료도를 끈다
-            LaunchedEffect(controller.currentFilm, controller.holdOriginal) {
+            // 필름(모드)이 바뀌면 프리뷰 LUT도 교체
+            LaunchedEffect(controller.currentFilm) {
                 renderer.setLut(controller.lutFor(controller.currentFilm))
-                renderer.lutEnabled = !controller.holdOriginal
-                renderer.setClarity(if (controller.holdOriginal) 0f else controller.currentFilm.clarity)
+                renderer.setClarity(controller.currentFilm.clarity)
             }
             // 필름 그리드: 모든 필름의 LUT를 타일로 그린다(LUT 읽기는 백그라운드에서)
             LaunchedEffect(controller.drawerOpen) {
