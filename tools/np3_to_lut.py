@@ -31,7 +31,11 @@ BLEND_SIGMA = 22.0
 HUE_MAX = 30.0     # 컬러 블렌더 색조 값 ±128 이 돌리는 각도
 CHROMA_MAX = 0.6   # 채도 값 ±128 이 바꾸는 비율
 LIGHT_MAX = 0.08   # 밝기 값 ±128 이 바꾸는 Oklab 밝기
-SAT_BOOST = {"leicaviv": 0.12}  # 레시피 값 위에 전체 채도를 더 올리는 비율(0.12 = +12%). 파일에서 읽을 수 없는 취향 보정
+SAT_BOOST = {"leicaviv": 0.12, "leicastd": 0.15, "ektar100": 0.12}  # 레시피 값 위에 전체 채도를 더 올리는 비율(0.12 = +12%). 파일에서 읽을 수 없는 취향 보정
+# 레시피대로만 변환하면 바뀌는 느낌이 약해서, 색이 바뀐 양(원본 대비 Oklab 차이)을 필터마다 배수로 키운다. 1.0 = 레시피 그대로.
+# 값은 숲/서울/야경 샘플에서 평균 색 변화량이 기존 골드/포레스트 수준(0.04~0.07)에 가깝게 맞췄다. 라이카 2종은 파일에 톤 커브가 없고 색 이동이 아주 작아 크게 키웠다.
+STRENGTH = {"ektar100": 1.5, "kgold200": 1.7, "kportra800": 1.4, "provia100f": 1.1, "warmautumn": 1.15,
+            "classicchrome": 1.6, "leicastd": 3.0, "leicaviv": 4.0, "fprovia100f": 1.1, "kchrome": 1.3}
 GRADE_K = 0.15     # 컬러 그레이딩 채도 값(0x80 기준 차이/128)이 더하는 Oklab 색 크기
 
 
@@ -116,13 +120,24 @@ def build(curve, blend, grade, sat=0.0):
     return np.clip(X.from_oklab(out), 0, 1).reshape(n, n, n, 3).astype(np.float32)
 
 
+def amplify(lut, k):
+    """LUT가 원본에서 바꾼 만큼(Oklab 차이)을 k배로 키운다. 표현 범위를 벗어나는 색은 채도만 줄여 넣는다."""
+    if k == 1.0:
+        return lut
+    n = lut.shape[0]
+    grid = np.stack(np.meshgrid(*[np.linspace(0, 1, n)] * 3, indexing="ij"), axis=-1).reshape(-1, 3)
+    a = X.to_oklab(grid); b = X.to_oklab(lut.reshape(-1, 3).astype(np.float64))
+    out = X._fit_gamut(a + k * (b - a))
+    return np.clip(X.from_oklab(out), 0, 1).reshape(n, n, n, 3).astype(np.float32)
+
+
 def main():
     srcs = [Path(a) for a in sys.argv[1:]] or [ASSETS.parents[5] / "local" / "recipes"]  # 폴더를 안 주면 local/recipes
     for name, key in RECIPES.items():
         path = next((f for f in (d / f"{name}.NP3" for d in srcs) if f.exists()), None)
         if path is None:
             continue
-        lut = build(*parse(path), sat=SAT_BOOST.get(key, 0.0))
+        lut = amplify(build(*parse(path), sat=SAT_BOOST.get(key, 0.0)), STRENGTH.get(key, 1.0))
         X.write_cube(str(ASSETS / f"{key}.cube"), lut, title=key)
         mid = lut[16, 16, 16]
         print(f"{key}: 중간 회색 -> {np.round(mid, 3)}  (0.5 = 변화 없음)")
