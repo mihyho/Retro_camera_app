@@ -44,6 +44,21 @@ class LutRenderer(
         pendingLut = newLut
         glView.requestRender()
     }
+    /** 필름 그리드: 같은 실시간 영상을 필름 수만큼 타일로 나눠 각자의 LUT로 그린다. null이면 한 화면 모드 */
+    class GridTile(val lut: CubeLut, val clarity: Float)
+    @Volatile private var pendingGrid: List<GridTile>? = null
+    @Volatile private var gridOn = false
+    private var gridTiles: List<GridTile> = emptyList()
+    private var gridTex = IntArray(0)
+    private var gridCols = 3
+
+    fun setGrid(tiles: List<GridTile>?, cols: Int = 3) {
+        gridCols = cols
+        if (tiles != null) pendingGrid = tiles
+        gridOn = tiles != null
+        glView.requestRender()
+    }
+
     @Volatile private var rotationDegrees = 0
     /** 화면(UI)을 돌렸을 때 미리보기가 같이 돌아가지 않도록 더 돌려 줄 각도(시계 방향). SurfaceTexture 행렬은 세로 기준 회전만 담고 있다 */
     @Volatile private var extraRotation = 0f
@@ -100,16 +115,31 @@ class LutRenderer(
         GLES30.glTexParameteri(oes, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
 
         lutUploaded = false
+        gridTex = IntArray(0) // 이전 컨텍스트의 타일 텍스처는 무효: 다음 그리기에서 다시 올린다
+        if (gridTiles.isNotEmpty()) pendingGrid = gridTiles
         uploadLut()
+    }
+
+    /** GL 스레드: 그리드 타일 LUT를 각자 3D 텍스처로 올린다 */
+    private fun uploadGrid(tiles: List<GridTile>) {
+        if (gridTex.isNotEmpty()) GLES30.glDeleteTextures(gridTex.size, gridTex, 0)
+        gridTex = IntArray(tiles.size).also { GLES30.glGenTextures(it.size, it, 0) }
+        tiles.forEachIndexed { i, t -> uploadLutTo(gridTex[i], t.lut) }
+        gridTiles = tiles
     }
 
     /** GL 스레드: lut를 lutTex(3D 텍스처)로 업로드 */
     private fun uploadLut() {
+        uploadLutTo(lutTex, lut)
+        lutUploaded = true
+    }
+
+    private fun uploadLutTo(tex: Int, lut: CubeLut) {
         val n = lut.size
         val buf = ByteBuffer.allocateDirect(lut.data.size * 4).order(ByteOrder.nativeOrder())
         buf.asFloatBuffer().put(lut.data)
         buf.position(0)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_3D, lutTex)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_3D, tex)
         GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 1)
         GLES30.glTexImage3D(
             GLES30.GL_TEXTURE_3D, 0, GLES30.GL_RGB16F, n, n, n, 0,
@@ -119,7 +149,6 @@ class LutRenderer(
             GLES30.glTexParameteri(GLES30.GL_TEXTURE_3D, p, GLES30.GL_LINEAR)
         for (p in intArrayOf(GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_TEXTURE_WRAP_R))
             GLES30.glTexParameteri(GLES30.GL_TEXTURE_3D, p, GLES30.GL_CLAMP_TO_EDGE)
-        lutUploaded = true
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -132,20 +161,37 @@ class LutRenderer(
         pendingLut?.let { lut = it; pendingLut = null; uploadLut() }
         pendingRequest?.let { fulfil(it); pendingRequest = null }
 
+        pendingGrid?.let { uploadGrid(it); pendingGrid = null }
+        GLES30.glViewport(0, 0, viewW, viewH)
         GLES30.glClearColor(0f, 0f, 0f, 1f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         val st = surfaceTexture ?: return
         st.updateTexImage()
         st.getTransformMatrix(stMatrix)
 
+        if (gridOn && gridTiles.isNotEmpty() && gridTex.size == gridTiles.size) {
+            val rows = (gridTiles.size + gridCols - 1) / gridCols
+            val tw = viewW / gridCols; val th = viewH / rows
+            gridTiles.forEachIndexed { i, t ->
+                val x = (i % gridCols) * tw
+                val y = viewH - (i / gridCols + 1) * th // GL 뷰포트는 왼쪽 아래가 원점
+                drawTile(x, y, tw, th, gridTex[i], t.lut.size, t.clarity, true)
+            }
+        } else {
+            drawTile(0, 0, viewW, viewH, lutTex, lut.size, clarity, lutEnabled)
+        }
+    }
+
+    /** 뷰포트 한 칸에 영상을 중앙 크롭으로 그린다 */
+    private fun drawTile(x: Int, y: Int, w: Int, h: Int, tex: Int, lutSize: Int, clarity: Float, lutOn: Boolean) {
+        GLES30.glViewport(x, y, w, h)
         // 화면 uv(0..1) -> 중앙 크롭 -> SurfaceTexture 변환.
         // 회전은 SurfaceTexture 변환 행렬에 이미 포함돼 있다(에뮬레이터에서 확인: rotationDegrees=90일 때
         // 별도 회전을 더하면 90도/180도 틀어진다). rotationDegrees는 크롭 비율 계산(가로/세로 교환)에만 쓴다.
-        // TODO: 실제 폰에서도 똑바로 나오는지 확인할 것.
         val rot = rotationDegrees
         val dispW = if (rot % 180 == 0) bufferW else bufferH
         val dispH = if (rot % 180 == 0) bufferH else bufferW
-        val viewAspect = viewW.toFloat() / viewH
+        val viewAspect = w.toFloat() / h
         val imgAspect = dispW.toFloat() / dispH
         val sx = if (imgAspect > viewAspect) viewAspect / imgAspect else 1f
         val sy = if (imgAspect > viewAspect) 1f else imgAspect / viewAspect
@@ -162,8 +208,8 @@ class LutRenderer(
 
         GLES30.glUseProgram(program)
         GLES30.glUniformMatrix4fv(GLES30.glGetUniformLocation(program, "uTexMatrix"), 1, false, mvp, 0)
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uLutSize"), lut.size.toFloat())
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uLutOn"), if (lutEnabled) 1f else 0f)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uLutSize"), lutSize.toFloat())
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uLutOn"), if (lutOn) 1f else 0f)
         GLES30.glUniform2f(GLES30.glGetUniformLocation(program, "uTexel"), 1f / bufferW, 1f / bufferH)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uClarity"), clarity)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uClaritySigma"), Clarity.sigma(bufferW))
@@ -171,7 +217,7 @@ class LutRenderer(
         GLES30.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, camTex)
         GLES30.glUniform1i(GLES30.glGetUniformLocation(program, "uCam"), 0)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_3D, lutTex)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_3D, tex)
         GLES30.glUniform1i(GLES30.glGetUniformLocation(program, "uLut"), 1)
 
         GLES30.glEnableVertexAttribArray(0)

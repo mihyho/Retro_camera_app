@@ -1,0 +1,107 @@
+package com.example.retrocamera.ui
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.Dp
+import kotlin.math.cos
+import kotlin.math.sin
+
+/** Phosphor Light 느낌의 선 아이콘(24 격자). 외부 아이콘 파일 없이 Canvas로 그린다. */
+enum class Ico { BOLT, EXPOSURE, FLIP, GEAR, IMAGES, CIRCLES, LOCK, CHECK, EXPORT, TRASH, CHEVRON_LEFT, CAMERA, PROHIBIT }
+
+@Composable
+fun Icon(kind: Ico, size: Dp, color: Color, modifier: Modifier = Modifier, fill: Boolean = false) {
+    Canvas(modifier.size(size)) {
+        val k = this.size.width / 24f
+        val sw = 1.6f * k
+        val st = Stroke(sw, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        fun p(x: Float, y: Float) = Offset(x * k, y * k)
+        fun line(x1: Float, y1: Float, x2: Float, y2: Float) = drawLine(color, p(x1, y1), p(x2, y2), sw, StrokeCap.Round)
+        fun poly(vararg pts: Float, close: Boolean = false, filled: Boolean = false) {
+            val path = Path().apply {
+                moveTo(pts[0] * k, pts[1] * k)
+                for (i in 2 until pts.size step 2) lineTo(pts[i] * k, pts[i + 1] * k)
+                if (close) close()
+            }
+            drawPath(path, color, style = if (filled) Fill else st)
+        }
+        fun rrect(x: Float, y: Float, w: Float, h: Float, r: Float) =
+            drawRoundRect(color, p(x, y), Size(w * k, h * k), CornerRadius(r * k), style = st)
+        fun circle(cx: Float, cy: Float, r: Float, filled: Boolean = false) =
+            drawCircle(color, r * k, p(cx, cy), style = if (filled) Fill else st)
+
+        when (kind) {
+            Ico.BOLT -> poly(13f, 3f, 5.5f, 13.5f, 11f, 13.5f, 10f, 21f, 18.5f, 10f, 13f, 10f, close = true, filled = fill)
+            Ico.EXPOSURE -> {
+                line(7f, 3.5f, 7f, 9.5f); line(4f, 6.5f, 10f, 6.5f); line(14f, 17.5f, 20f, 17.5f); line(19f, 4.5f, 5f, 19.5f)
+            }
+            Ico.FLIP -> {
+                rrect(2.5f, 6f, 19f, 14f, 3f)
+                arrowArc(color, k, 12f, 13f, 3.6f, 200f)
+                arrowArc(color, k, 12f, 13f, 3.6f, 20f)
+            }
+            Ico.GEAR -> {
+                circle(12f, 12f, 6.2f); circle(12f, 12f, 2.4f)
+                for (i in 0 until 8) {
+                    val a = Math.toRadians(i * 45.0)
+                    val c = cos(a).toFloat(); val s = sin(a).toFloat()
+                    line(12f + c * 6.2f, 12f + s * 6.2f, 12f + c * 9f, 12f + s * 9f)
+                }
+            }
+            Ico.IMAGES -> {
+                rrect(3f, 5f, 18f, 14f, 2f); circle(8.5f, 10f, 1.5f)
+                poly(3.5f, 17f, 9f, 12f, 13f, 16f, 16f, 13.5f, 20.5f, 17.5f)
+            }
+            Ico.CIRCLES -> { circle(12f, 7f, 4f); circle(7f, 15.5f, 4f); circle(17f, 15.5f, 4f) }
+            Ico.LOCK -> {
+                rrect(5.5f, 11f, 13f, 9.5f, 2f)
+                val sh = Path().apply { moveTo(8.5f * k, 11f * k); lineTo(8.5f * k, 8f * k); arcTo(androidx.compose.ui.geometry.Rect(p(8.5f, 4f), Size(7f * k, 7f * k)), 180f, 180f, false); lineTo(15.5f * k, 11f * k) }
+                drawPath(sh, color, style = st)
+            }
+            Ico.CHECK -> poly(4.5f, 12.5f, 9.5f, 17.5f, 19.5f, 6.5f)
+            Ico.EXPORT -> {
+                line(12f, 14.5f, 12f, 3f); poly(8f, 7f, 12f, 3f, 16f, 7f)
+                poly(7.5f, 10f, 5f, 10f, 5f, 21f, 19f, 21f, 19f, 10f, 16.5f, 10f)
+            }
+            Ico.TRASH -> {
+                line(4f, 7f, 20f, 7f); poly(6f, 7f, 6f, 20f, 18f, 20f, 18f, 7f); poly(9f, 7f, 9f, 4f, 15f, 4f, 15f, 7f)
+                line(10f, 11f, 10f, 16f); line(14f, 11f, 14f, 16f)
+            }
+            Ico.CHEVRON_LEFT -> poly(15f, 4.5f, 8f, 12f, 15f, 19.5f)
+            Ico.CAMERA -> {
+                rrect(2.5f, 6.5f, 19f, 13.5f, 3f); circle(12f, 13.2f, 3.8f)
+                poly(8f, 6.5f, 9.5f, 4f, 14.5f, 4f, 16f, 6.5f)
+            }
+            Ico.PROHIBIT -> { circle(12f, 12f, 9f); line(5.7f, 5.7f, 18.3f, 18.3f) }
+        }
+    }
+}
+
+/** 원호 + 화살촉(시계 방향). 카메라 전환 아이콘용 */
+private fun DrawScope.arrowArc(color: Color, k: Float, cx: Float, cy: Float, r: Float, start: Float) {
+    val sw = 1.5f * k
+    drawArc(color, start, 130f, false, Offset((cx - r) * k, (cy - r) * k), Size(2 * r * k, 2 * r * k), style = Stroke(sw, cap = StrokeCap.Round))
+    val a = Math.toRadians((start + 130f).toDouble())
+    val n = Offset(cos(a).toFloat(), sin(a).toFloat())
+    val t = Offset(-n.y, n.x)
+    val c = Offset(cx * k, cy * k) + n * (r * k)
+    val head = 1.9f * k
+    drawPath(Path().apply {
+        moveTo((c + t * head * 1.3f).x, (c + t * head * 1.3f).y)
+        lineTo((c + n * head).x, (c + n * head).y)
+        lineTo((c - n * head).x, (c - n * head).y)
+        close()
+    }, color)
+}

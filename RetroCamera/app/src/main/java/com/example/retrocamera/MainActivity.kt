@@ -24,7 +24,10 @@ import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.core.content.ContextCompat
+import com.example.retrocamera.data.Film
 import com.example.retrocamera.data.Mode
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.example.retrocamera.ui.CameraScreen
 import java.util.concurrent.Executors
 
@@ -47,14 +50,14 @@ class MainActivity : ComponentActivity() {
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) startCamera() else controller.showToast("카메라 권한이 필요합니다")
+            if (granted) { controller.perm = AppController.Perm.GRANTED; startCamera() } else controller.perm = AppController.Perm.DENIED
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+            statusBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
         )
 
         controller = AppController(applicationContext)
@@ -66,15 +69,31 @@ class MainActivity : ComponentActivity() {
         renderer = LutRenderer(glView, controller.lutFor(controller.currentFilm), ContextCompat.getMainExecutor(this))
         controller.onFlipCamera = { controller.lensFront = !controller.lensFront; startCamera() }
         controller.onExposureChange = { camera?.cameraControl?.setExposureCompensationIndex(it) }
+        controller.onFlashChange = { camera?.cameraControl?.enableTorch(it && !controller.lensFront) }
+        controller.onZoomReset = { zoomTarget = 1f; camera?.cameraControl?.setZoomRatio(1f) }
+        controller.onRequestPermission = {
+            if (controller.perm == AppController.Perm.DENIED && !shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)) {
+                // "다시 묻지 않음"이면 시스템 창이 안 뜬다: 앱 설정으로 보낸다
+                startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", packageName, null)))
+            } else permissionLauncher.launch(Manifest.permission.CAMERA)
+        }
         renderer.onContextRecreated = { if (imageCapture != null) startCamera() }
         glView.setRenderer(renderer)
         glView.renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
 
         setContent {
-            // 필름(모드)이 바뀌면 프리뷰 LUT도 교체
-            LaunchedEffect(controller.currentFilm) {
+            // 필름(모드)이 바뀌면 프리뷰 LUT도 교체. "원본"을 누르고 있는 동안은 필터와 명료도를 끈다
+            LaunchedEffect(controller.currentFilm, controller.holdOriginal) {
                 renderer.setLut(controller.lutFor(controller.currentFilm))
-                renderer.setClarity(controller.currentFilm.clarity)
+                renderer.lutEnabled = !controller.holdOriginal
+                renderer.setClarity(if (controller.holdOriginal) 0f else controller.currentFilm.clarity)
+            }
+            // 필름 그리드: 모든 필름의 LUT를 타일로 그린다(LUT 읽기는 백그라운드에서)
+            LaunchedEffect(controller.drawerOpen) {
+                if (controller.drawerOpen) {
+                    val tiles = withContext(Dispatchers.Default) { Film.entries.map { LutRenderer.GridTile(controller.lutFor(it), it.clarity) } }
+                    if (controller.drawerOpen) renderer.setGrid(tiles)
+                } else renderer.setGrid(null)
             }
             CameraScreen(controller, glView, onShutter = ::takePhoto, onZoomBy = ::zoomBy, onZoomToggle = ::zoomToggle)
         }
@@ -82,6 +101,7 @@ class MainActivity : ComponentActivity() {
         if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             startCamera()
         } else {
+            controller.perm = AppController.Perm.INTRO
             permissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
@@ -89,6 +109,11 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         glView.onResume()
+        // 앱 설정에서 권한을 허용하고 돌아온 경우
+        if (controller.perm != AppController.Perm.GRANTED && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            controller.perm = AppController.Perm.GRANTED
+            startCamera()
+        }
     }
 
     override fun onPause() {
@@ -124,6 +149,7 @@ class MainActivity : ComponentActivity() {
                 controller.showToast("전면 카메라를 찾을 수 없어요")
                 selector = CameraSelector.DEFAULT_BACK_CAMERA
             }
+            controller.flipAvailable = provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) && provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider { request -> renderer.onSurfaceRequested(request) }
             }
@@ -148,6 +174,9 @@ class MainActivity : ComponentActivity() {
                 controller.updateExposure(es.exposureCompensationRange.lower..es.exposureCompensationRange.upper, es.exposureCompensationStep.toFloat())
             }
             cam.cameraControl.setExposureCompensationIndex(controller.exposureIndex) // 카메라를 다시 연결해도 고른 노출을 유지
+            controller.flashAvailable = controller.lensFront || cam.cameraInfo.hasFlashUnit()
+            if (!controller.flashAvailable) controller.flashOn = false
+            cam.cameraControl.enableTorch(controller.flashOn && !controller.lensFront)
             cam.cameraInfo.zoomState.observe(this) { zs ->
                 zoomTarget = zs.zoomRatio
                 controller.updateZoom(zs.zoomRatio, zs.maxZoomRatio)
@@ -173,7 +202,10 @@ class MainActivity : ComponentActivity() {
 
     private fun takePhoto() {
         // 패널(현상/사진/설정)이 떠 있으면 셔터는 카메라 화면으로 돌아오기만 한다
-        if (controller.panel != null || controller.drawerOpen || controller.discardAsk != null) { controller.panel = null; controller.closeDrawer(); controller.discardAsk = null; return }
+        if (controller.perm != AppController.Perm.GRANTED) return
+        if (controller.panel != null || controller.drawerOpen || controller.alert != null || controller.loadOpen) {
+            controller.panel = null; controller.closeDrawer(); controller.alert = null; controller.loadOpen = false; return
+        }
         val capture = imageCapture ?: return
         val s = controller.state
         val mode = s.mode
@@ -183,14 +215,17 @@ class MainActivity : ComponentActivity() {
         val stampText = if (s.stamp) formatStamp(System.currentTimeMillis()) else null
         if (mode == Mode.FILM) {
             val roll = s.roll
-            if (roll == null) { controller.showToast("필름을 먼저 넣어 주세요"); return }
+            if (roll == null) { controller.openLoad(); return }
             if (roll.remaining - inFlightFilm <= 0) return // 마지막 장 처리 중
             inFlightFilm++
         }
         controller.triggerFlash()
         val lut = controller.lutFor(film)
 
-        capture.takePicture(ContextCompat.getMainExecutor(this), object : ImageCapture.OnImageCapturedCallback() {
+        // 전면 카메라 플래시: 촬영 직전 화면을 잠깐 하얗게 해서 보조광으로 쓴다
+        val screenFlash = controller.flashOn && controller.lensFront
+        if (screenFlash) controller.screenFlash = true
+        fun shoot() = capture.takePicture(ContextCompat.getMainExecutor(this), object : ImageCapture.OnImageCapturedCallback() {
             override fun onCaptureSuccess(image: ImageProxy) {
                 val bytes: ByteArray
                 val rotation: Int
@@ -224,6 +259,9 @@ class MainActivity : ComponentActivity() {
                 controller.showToast("촬영 실패")
             }
         })
+        if (screenFlash) {
+            glView.postDelayed({ shoot(); glView.postDelayed({ controller.screenFlash = false }, 150) }, 260)
+        } else shoot()
     }
 
     /** 화면을 돌려도 액티비티를 다시 만들지 않으므로(configChanges), 미리보기/촬영 방향을 직접 맞춘다 */

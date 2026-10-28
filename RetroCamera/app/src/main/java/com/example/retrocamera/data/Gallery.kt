@@ -15,3 +15,21 @@ fun galleryEntries(devRolls: List<DevelopedRoll>, singles: List<Shot>): List<Gal
     }
     singles.forEach { add(GalleryEntry(it, it.film.displayName, "단일 촬영 · ${formatStamp(it.takenAt)}")) }
 }.sortedBy { it.shot.takenAt }
+
+/** 사진 보관함의 한 묶음(단일 촬영 또는 현상된 롤). 사진은 최신순 */
+data class LibraryGroup(val title: String, val meta: String, val shots: List<Shot>)
+
+private fun Shot.sameAs(o: Shot) = file == o.file && takenAt == o.takenAt
+
+fun libraryGroups(s: AppState): List<LibraryGroup> = buildList {
+    if (s.singleShots.isNotEmpty()) add(LibraryGroup("단일 촬영", "${s.singleShots.size}장", s.singleShots))
+    s.devRolls.forEach { r ->
+        add(LibraryGroup(r.film.displayName, "${formatStamp(r.end).drop(1).replace(' ', '.')} · ${r.shots.size}장", r.shots))
+    }
+}
+
+/** shot이 들어 있는 묶음과 그 안의 위치. 없으면 null */
+fun findInGroups(groups: List<LibraryGroup>, shot: Shot): Pair<LibraryGroup, Int>? {
+    groups.forEach { g -> val i = g.shots.indexOfFirst { it.sameAs(shot) }; if (i >= 0) return g to i }
+    return null
+}
