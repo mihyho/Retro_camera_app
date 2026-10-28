@@ -31,9 +31,10 @@ BLEND_SIGMA = 22.0
 HUE_MAX = 30.0     # 컬러 블렌더 색조 값 ±128 이 돌리는 각도
 CHROMA_MAX = 0.6   # 채도 값 ±128 이 바꾸는 비율
 LIGHT_MAX = 0.08   # 밝기 값 ±128 이 바꾸는 Oklab 밝기
-SAT_BOOST = {"leicaviv": 0.12, "leicastd": 0.15, "ektar100": 0.12}  # 레시피 값 위에 전체 채도를 더 올리는 비율(0.12 = +12%). 파일에서 읽을 수 없는 취향 보정
+SAT_BOOST = {"leicaviv": 0.70, "leicastd": 0.15, "ektar100": 0.12}  # 레시피 값 위에 전체 채도를 더 올리는 비율(0.12 = +12%). 파일에서 읽을 수 없는 취향 보정
 # 레시피대로만 변환하면 바뀌는 느낌이 약해서, 색이 바뀐 양(원본 대비 Oklab 차이)을 필터마다 배수로 키운다. 1.0 = 레시피 그대로.
 # 값은 숲/서울/야경 샘플에서 평균 색 변화량이 기존 골드/포레스트 수준(0.04~0.07)에 가깝게 맞췄다. 라이카 2종은 파일에 톤 커브가 없고 색 이동이 아주 작아 크게 키웠다.
+LIGHT_LIFT = {"leicaviv": 0.024}  # 중간톤 밝기를 올리는 양(검정/흰색은 고정). 라이카 VIV가 STD보다 밝아야 해서
 STRENGTH = {"ektar100": 1.5, "kgold200": 1.7, "kportra800": 1.4, "provia100f": 1.1, "warmautumn": 1.15,
             "classicchrome": 1.6, "leicastd": 3.0, "leicaviv": 4.0, "fprovia100f": 1.1, "kchrome": 1.3}
 GRADE_K = 0.15     # 컬러 그레이딩 채도 값(0x80 기준 차이/128)이 더하는 Oklab 색 크기
@@ -75,7 +76,7 @@ def _hue_dist(h, c):
     return np.abs((h - c + 180.0) % 360.0 - 180.0)
 
 
-def build(curve, blend, grade, sat=0.0):
+def build(curve, blend, grade, sat=0.0, lift=0.0):
     n = X.N
     grid = np.stack(np.meshgrid(*[np.linspace(0, 1, n)] * 3, indexing="ij"), axis=-1).reshape(-1, 3)
     lab = X.to_oklab(grid)
@@ -104,7 +105,7 @@ def build(curve, blend, grade, sat=0.0):
         dl += w * l_off / 128.0 * LIGHT_MAX
     ch = np.hypot(a, b) * np.clip(1.0 + dc + sat, 0.0, 2.0)
     ang = np.arctan2(b, a) + np.radians(dh)
-    a, b, L = ch * np.cos(ang), ch * np.sin(ang), L + dl
+    a, b, L = ch * np.cos(ang), ch * np.sin(ang), L + dl + lift * 4.0 * L * (1.0 - L)
 
     # 3) 컬러 그레이딩: 그림자/중간/하이라이트 구간에 색을 얹는다(구간 가중치의 합 = 1)
     w_sh = 1.0 - X._smoothstep(0.15, 0.55, L)
@@ -137,7 +138,7 @@ def main():
         path = next((f for f in (d / f"{name}.NP3" for d in srcs) if f.exists()), None)
         if path is None:
             continue
-        lut = amplify(build(*parse(path), sat=SAT_BOOST.get(key, 0.0)), STRENGTH.get(key, 1.0))
+        lut = amplify(build(*parse(path), sat=SAT_BOOST.get(key, 0.0), lift=LIGHT_LIFT.get(key, 0.0)), STRENGTH.get(key, 1.0))
         X.write_cube(str(ASSETS / f"{key}.cube"), lut, title=key)
         mid = lut[16, 16, 16]
         print(f"{key}: 중간 회색 -> {np.round(mid, 3)}  (0.5 = 변화 없음)")
