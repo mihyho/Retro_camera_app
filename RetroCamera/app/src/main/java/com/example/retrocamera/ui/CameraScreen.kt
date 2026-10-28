@@ -33,7 +33,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun CameraScreen(
     c: AppController, glView: GLSurfaceView, onShutter: () -> Unit,
-    onZoomBy: (Float) -> Unit, onZoomToggle: () -> Unit, onZoomStep: () -> Unit,
+    onZoomBy: (Float) -> Unit, onZoomStep: () -> Unit,
 ) {
     val s = c.state
     val panel = c.panel
@@ -54,7 +54,7 @@ fun CameraScreen(
     Box(Modifier.fillMaxSize().background(Ds.Bg).windowInsetsPadding(WindowInsets.systemBars)) {
         CameraLayout(
             top = { TopBar(c, onSettings = { openPage(Panel.Settings) }, onLibrary = { openPage(Panel.Gallery) }) },
-            viewfinder = { Viewfinder(c, glView, onZoomBy, onZoomToggle, onZoomStep, onLoad = c::openLoad) },
+            viewfinder = { Viewfinder(c, glView, onZoomBy, onZoomStep, onLoad = c::openLoad) },
             bottom = { land ->
                 BottomBar(
                     c, land, onLibrary = { openPage(Panel.Gallery) }, onShutter = onShutter,

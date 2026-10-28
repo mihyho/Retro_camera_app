@@ -9,7 +9,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -253,14 +252,14 @@ fun BottomBar(c: AppController, landscape: Boolean, onLibrary: () -> Unit, onShu
 // ───────────────────────── 뷰파인더 ─────────────────────────
 
 @Composable
-fun Viewfinder(c: AppController, glView: GLSurfaceView, onZoomBy: (Float) -> Unit, onZoomToggle: () -> Unit, onZoomStep: () -> Unit, onLoad: () -> Unit) {
+fun Viewfinder(c: AppController, glView: GLSurfaceView, onZoomBy: (Float) -> Unit, onZoomStep: () -> Unit, onLoad: () -> Unit) {
     val s = c.state
     val noFilm = s.mode == Mode.FILM && s.roll == null
     val gestures = c.perm == AppController.Perm.GRANTED && !c.drawerOpen && !noFilm && c.panel == null && !c.loadOpen
     Box(Modifier.fillMaxSize().background(Ds.Neutral).clipToBounds()) {
         AndroidView({ glView }, Modifier.fillMaxSize())
         if (c.perm == AppController.Perm.GRANTED) {
-            if (gestures) GestureLayer(onZoomBy, onZoomToggle, onSwipe = { c.cycleFilm(it) })
+            if (gestures) GestureLayer(onZoomBy, onSwipe = { c.cycleFilm(it) })
             if (s.grid && !c.drawerOpen && !noFilm) GridLines()
             if (!c.drawerOpen && !noFilm) {
                 FilmChip(c.currentFilm, Modifier.align(Alignment.TopStart).padding(8.dp))
@@ -283,15 +282,13 @@ fun Viewfinder(c: AppController, glView: GLSurfaceView, onZoomBy: (Float) -> Uni
     }
 }
 
-/** 핀치로 확대/축소, 두 번 탭하면 1배 <-> 2배, 한 손가락으로 60dp 이상 좌우로 밀면 필름 전환 */
+/** 핀치로 확대/축소, 한 손가락으로 60dp 이상 좌우로 밀면 필름 전환 */
 @Composable
-private fun GestureLayer(onZoomBy: (Float) -> Unit, onZoomToggle: () -> Unit, onSwipe: (Int) -> Unit) {
+private fun GestureLayer(onZoomBy: (Float) -> Unit, onSwipe: (Int) -> Unit) {
     val zoom = rememberUpdatedState(onZoomBy)
-    val toggle = rememberUpdatedState(onZoomToggle)
     val swipe = rememberUpdatedState(onSwipe)
     Box(
         Modifier.fillMaxSize()
-            .pointerInput(Unit) { detectTapGestures(onDoubleTap = { toggle.value() }) }
             .pointerInput(Unit) {
                 val threshold = 60.dp.toPx()
                 awaitEachGesture {

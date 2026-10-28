@@ -21,15 +21,6 @@ class ZoomMathTest {
     }
 
     @Test
-    fun doubleTapTogglesBetweenMinAndTwoX() {
-        assertEquals(2f, ZoomMath.doubleTapTarget(1f, 1f, 8f), 1e-6f)
-        assertEquals(1f, ZoomMath.doubleTapTarget(2f, 1f, 8f), 1e-6f)
-        assertEquals("조금만 확대된 상태에서도 원래로 돌아간다", 1f, ZoomMath.doubleTapTarget(1.3f, 1f, 8f), 1e-6f)
-        assertEquals("최대 배율이 2배보다 작으면 최대 배율까지", 1.5f, ZoomMath.doubleTapTarget(1f, 1f, 1.5f), 1e-6f)
-        assertEquals("확대를 못 하는 카메라는 그대로", 1f, ZoomMath.doubleTapTarget(1f, 1f, 1f), 1e-6f)
-    }
-
-    @Test
     fun formatsForTheHud() {
         assertEquals("1.0×", ZoomMath.format(1f))
         assertEquals("2.5×", ZoomMath.format(2.5f))
