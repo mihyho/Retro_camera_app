@@ -55,6 +55,7 @@ class StateStore(private val file: File) {
             put("stamp", s.stamp)
             put("volumeShutter", s.volumeShutter)
             put("grainOn", s.grainOn)
+            put("recordLocation", s.recordLocation)
         }
 
         fun fromJson(o: JSONObject): AppState = AppState(
@@ -77,6 +78,7 @@ class StateStore(private val file: File) {
             stamp = o.getBoolean("stamp"),
             volumeShutter = o.optBoolean("volumeShutter", true), // 옛 상태 파일에는 없으므로 기본 켬
             grainOn = o.optBoolean("grainOn", true),
+            recordLocation = o.optBoolean("recordLocation", true),
         )
 
         private fun rollJson(r: Roll) = JSONObject().apply {
@@ -88,6 +90,7 @@ class StateStore(private val file: File) {
                 a.put(JSONObject().apply {
                     put("film", s.film.key); put("file", s.file); put("takenAt", s.takenAt)
                     put("uri", s.uri ?: JSONObject.NULL)
+                    if (s.lat != null && s.lon != null) { put("lat", s.lat); put("lon", s.lon) } // 촬영 위치(없으면 생략). 사진 파일(EXIF)에는 넣지 않는다
                 })
             }
         }
@@ -95,7 +98,8 @@ class StateStore(private val file: File) {
         private fun shots(a: JSONArray) = (0 until a.length()).map { i ->
             val s = a.getJSONObject(i)
             Shot(Film.fromKey(s.getString("film")), s.getString("file"), s.getLong("takenAt"),
-                if (s.isNull("uri")) null else s.getString("uri"))
+                if (s.isNull("uri")) null else s.getString("uri"),
+                if (s.has("lat")) s.getDouble("lat") else null, if (s.has("lon")) s.getDouble("lon") else null)
         }
     }
 }

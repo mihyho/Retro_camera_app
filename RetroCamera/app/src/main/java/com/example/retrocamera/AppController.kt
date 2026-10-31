@@ -101,6 +101,26 @@ class AppController(private val appContext: Context) {
         return true
     }
 
+    fun askDeletePhotos(shots: List<Shot>, onDone: () -> Unit) {
+        alert = AlertState("사진 ${shots.size}장을 삭제할까요?", "선택한 사진이 기기에서 삭제되고 되돌릴 수 없어요.", "삭제") { deletePhotos(shots); onDone() }
+    }
+
+    /** 여러 장 삭제: 상태를 한 번에 바꿔 저장한 뒤 파일을 지운다. 갤러리로 내보내는 중인 롤의 사진은 건너뛴다 */
+    fun deletePhotos(shots: List<Shot>) {
+        alert = null
+        var next = state
+        val removed = ArrayList<Shot>()
+        for (shot in shots) {
+            val n = RollEngine.deleteShot(next, shot)
+            if (n != next) { next = n; removed += shot }
+        }
+        if (removed.isEmpty()) { showToast("아직 갤러리로 내보내는 중이라 지울 수 없어요"); return }
+        if (!tryCommit(next)) return
+        deleteFiles(removed)
+        val skipped = shots.size - removed.size
+        showToast(if (skipped == 0) "사진 ${removed.size}장을 삭제했어요" else "${removed.size}장을 삭제했어요 · ${skipped}장은 갤러리로 내보내는 중이라 남겨 뒀어요")
+    }
+
     private fun deleteFiles(shots: List<Shot>) {
         scope.launch(Dispatchers.IO) {
             shots.forEach { shot ->
@@ -293,7 +313,7 @@ class AppController(private val appContext: Context) {
     }
 
     /** 사진 파일이 저장된 뒤에 호출한다(저장 성공 -> 카운트 감소 순서). */
-    fun onPhotoSaved(saved: SavedPhoto, mode: Mode, film: Film, rollStart: Long? = null) {
+    fun onPhotoSaved(saved: SavedPhoto, mode: Mode, film: Film, rollStart: Long? = null, lat: Double? = null, lon: Double? = null) {
         val now = System.currentTimeMillis()
         if (mode == Mode.FILM) {
             // 찍는 동안 롤을 버렸거나(버린 뒤 새 롤을 넣은 경우 포함) 롤이 바뀌었으면 이 사진은 새 롤에 섞이지 않게 지운다
@@ -301,7 +321,7 @@ class AppController(private val appContext: Context) {
                 saved.file?.let { f -> scope.launch(Dispatchers.IO) { File(appContext.filesDir, f).delete() } }
                 return
             }
-            val (next, finished) = RollEngine.recordFilmShot(state, Shot(film, saved.file!!, now), now)
+            val (next, finished) = RollEngine.recordFilmShot(state, Shot(film, saved.file!!, now, null, lat, lon), now)
             if (!tryCommit(next)) {
                 scope.launch(Dispatchers.IO) { File(appContext.filesDir, saved.file).delete() }
                 return
@@ -315,7 +335,7 @@ class AppController(private val appContext: Context) {
                 }
             }
         } else {
-            if (!tryCommit(RollEngine.recordSingleShot(state, Shot(film, saved.uri!!, now, saved.uri)))) {
+            if (!tryCommit(RollEngine.recordSingleShot(state, Shot(film, saved.uri!!, now, saved.uri, lat, lon)))) {
                 scope.launch(Dispatchers.IO) { runCatching { appContext.contentResolver.delete(android.net.Uri.parse(saved.uri), null, null) } }
             }
         }
@@ -389,6 +409,17 @@ class AppController(private val appContext: Context) {
     fun setVolumeShutter(v: Boolean) = commit(RollEngine.setVolumeShutter(state, v))
     fun setGrain(v: Boolean) = commit(RollEngine.setGrain(state, v))
 
+    /** 위치 권한을 갖고 있는지(MainActivity가 알려 준다) */
+    var locationGranted by mutableStateOf(false)
+    /** MainActivity가 위치 권한을 요청하는 함수(이미 영구 거부면 앱 설정을 연다) */
+    var onRequestLocation: (() -> Unit)? = null
+
+    /** 위치 기록을 켜면 권한이 없을 때 바로 권한을 묻는다 */
+    fun setRecordLocation(v: Boolean) {
+        commit(RollEngine.setRecordLocation(state, v))
+        if (v && !locationGranted) onRequestLocation?.invoke()
+    }
+
     // ── 디버그 전용(설정 화면의 "프로토타입 테스트") ──
 
     /** 남은 장수를 가짜 사진으로 채워 롤을 끝낸다(현상 흐름 테스트용) */
@@ -406,7 +437,7 @@ class AppController(private val appContext: Context) {
     /** 촬영 설정(격자/각인/그레인/볼륨 셔터)과 노출을 처음 값으로 되돌린다. 사진과 롤은 그대로 */
     fun resetSettings() {
         val d = AppState()
-        commit(state.copy(grid = d.grid, stamp = d.stamp, volumeShutter = d.volumeShutter, grainOn = d.grainOn))
+        commit(state.copy(grid = d.grid, stamp = d.stamp, volumeShutter = d.volumeShutter, grainOn = d.grainOn, recordLocation = d.recordLocation))
         exposureIndex = 0
         onExposureChange?.invoke(0)
         onZoomReset?.invoke()

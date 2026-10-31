@@ -24,7 +24,7 @@ object PhotoPipeline {
     private const val STRIP_ROWS = 256
     private const val JPEG_QUALITY = 95
 
-    fun process(context: Context, jpeg: ByteArray, rotationDegrees: Int, lut: CubeLut, mode: Mode, film: Film, grainOn: Boolean = true, stampText: String? = null): SavedPhoto {
+    fun process(context: Context, jpeg: ByteArray, rotationDegrees: Int, lut: CubeLut, mode: Mode, film: Film, grainOn: Boolean = true, stampText: String? = null, lat: Double? = null, lon: Double? = null): SavedPhoto {
         val opts = BitmapFactory.Options().apply {
             inMutable = true
             inPreferredConfig = Bitmap.Config.ARGB_8888
@@ -45,6 +45,12 @@ object PhotoPipeline {
             // 픽셀은 센서 방향 그대로이므로 EXIF 회전 태그로 똑바로 보이게 한다
             ExifInterface(tmp.absolutePath).apply {
                 setAttribute(ExifInterface.TAG_ORIENTATION, exifOrientation(rotationDegrees).toString())
+                if (lat != null && lon != null) { // 기본 갤러리 앱이 읽는 GPS 태그
+                    setAttribute(ExifInterface.TAG_GPS_LATITUDE, gpsRational(lat))
+                    setAttribute(ExifInterface.TAG_GPS_LATITUDE_REF, if (lat >= 0) "N" else "S")
+                    setAttribute(ExifInterface.TAG_GPS_LONGITUDE, gpsRational(lon))
+                    setAttribute(ExifInterface.TAG_GPS_LONGITUDE_REF, if (lon >= 0) "E" else "W")
+                }
                 saveAttributes()
             }
             val name = "FILM_" + java.text.SimpleDateFormat("yyyyMMdd_HHmmss_SSS", java.util.Locale.US)
@@ -56,6 +62,15 @@ object PhotoPipeline {
         } finally {
             tmp.delete()
         }
+    }
+
+    /** EXIF GPS 값 형식: 도/1,분/1,초/10000 (부호는 N/S, E/W 태그가 맡는다) */
+    private fun gpsRational(v: Double): String {
+        val a = Math.abs(v)
+        val d = a.toInt()
+        val m = ((a - d) * 60).toInt()
+        val s = ((a - d) * 60 - m) * 60
+        return "$d/1,$m/1,${(s * 10000).toLong()}/10000"
     }
 
     /**

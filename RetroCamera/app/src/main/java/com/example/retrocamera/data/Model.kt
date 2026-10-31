@@ -47,7 +47,7 @@ enum class Film(
 enum class Mode { FILM, SINGLE }
 
 /** file은 앱 전용 저장소 기준 상대 경로, uri는 갤러리(MediaStore)로 내보낸 뒤의 주소(내보내기 전에는 null) */
-data class Shot(val film: Film, val file: String, val takenAt: Long, val uri: String? = null)
+data class Shot(val film: Film, val file: String, val takenAt: Long, val uri: String? = null, val lat: Double? = null, val lon: Double? = null)
 
 /** 필름 모드에서 진행 중인 롤. 이게 있으면 필름 잠금이 걸린다. */
 data class Roll(val film: Film, val total: Int, val shots: List<Shot>, val start: Long) {
@@ -76,4 +76,6 @@ data class AppState(
     val volumeShutter: Boolean = true,
     /** 촬영본에 필름 그레인을 넣을지(기본 켬) */
     val grainOn: Boolean = true,
+    /** 찍을 때 위치를 사진(EXIF)과 사진 뒷면에 기록할지(기본 켬, 위치 권한이 있어야 실제로 기록된다) */
+    val recordLocation: Boolean = true,
 )

@@ -73,6 +73,7 @@ class MainActivity : ComponentActivity() {
         controller.onFlipCamera = { controller.lensFront = !controller.lensFront; startCamera() }
         controller.onExposureChange = { camera?.cameraControl?.setExposureCompensationIndex(it) }
         controller.onFlashChange = { camera?.cameraControl?.enableTorch(it && !controller.lensFront) }
+        controller.onRequestLocation = { requestLocation() }
         controller.onStrip = { renderer.setStrip(it) }
         controller.onPreviewRect = { renderer.setPreview(it) }
         controller.onLiveFilm = { f -> renderer.setLut(controller.lutFor(f)); renderer.setClarity(f.clarity) }
@@ -126,6 +127,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         hideSystemBars()
+        askLocationOnce()
         glView.onResume()
         // 앱 설정에서 권한을 허용하고 돌아온 경우
         if (controller.perm != AppController.Perm.GRANTED && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
@@ -218,6 +220,46 @@ class MainActivity : ComponentActivity() {
         cam.cameraControl.setZoomRatio(zoomTarget)
     }
 
+    private val locationLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            locationPrefs.edit().putBoolean("askedLocation", true).apply() // 답을 받은 뒤에만 "물어 봤다"로 친다(창이 답 없이 닫히면 다시 묻는다)
+            controller.locationGranted = hasLocationPermission()
+            if (!controller.locationGranted && controller.state.recordLocation) controller.showToast("위치 권한이 없어 위치를 기록하지 못해요")
+        }
+
+    private fun hasLocationPermission() =
+        checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    private val locationPrefs get() = getSharedPreferences("retrocam", MODE_PRIVATE)
+
+    /** 위치 권한 요청. 한 번 거부하고 "다시 묻지 않음"이 된 뒤에는 시스템 창이 안 뜨니 앱 설정으로 보낸다 */
+    private fun requestLocation() {
+        val asked = locationPrefs.getBoolean("askedLocation", false)
+        if (asked &&!shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)) {
+            startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", packageName, null)))
+        } else locationLauncher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
+    }
+
+    /** 위치 기록이 켜져 있으면 카메라 권한이 생긴 뒤 처음 한 번 위치 권한을 묻는다. 설정에서 켤 때는 [requestLocation]으로 다시 묻는다 */
+    private fun askLocationOnce() {
+        controller.locationGranted = hasLocationPermission()
+        if (locationPrefs.getBoolean("askedLocation", false) || controller.locationGranted || !controller.state.recordLocation ||
+            checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED
+        ) return
+        requestLocation()
+    }
+
+    /** 가장 최근에 알려진 위치(1시간 이내). 기록이 꺼져 있거나 권한이 없거나 위치를 모르면 null: 새로 측정하려고 셔터를 늦추지 않는다 */
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun lastPlace(): Pair<Double, Double>? {
+        if (!controller.state.recordLocation || !hasLocationPermission()) return null
+        val lm = getSystemService(android.location.LocationManager::class.java) ?: return null
+        val newest = lm.getProviders(true).mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }.maxByOrNull { it.time }
+        if (newest == null || System.currentTimeMillis() - newest.time > 60 * 60 * 1000L) return null
+        return newest.latitude to newest.longitude
+    }
+
     private fun takePhoto() {
         // 패널(현상/사진/설정)이 떠 있으면 셔터는 카메라 화면으로 돌아오기만 한다
         if (controller.perm != AppController.Perm.GRANTED) return
@@ -231,6 +273,7 @@ class MainActivity : ComponentActivity() {
         val rollStart = s.roll?.start
         val grainOn = s.grainOn
         val stampText = if (s.stamp) formatStamp(System.currentTimeMillis()) else null
+        val place = lastPlace() // 사진 뒷면에 보여 줄 촬영 위치(셔터를 누른 순간 기준)
         if (mode == Mode.FILM) {
             val roll = s.roll
             if (roll == null) { controller.openLoad(); return }
@@ -259,10 +302,10 @@ class MainActivity : ComponentActivity() {
                     image.close()
                 }
                 worker.execute {
-                    val result = runCatching { PhotoPipeline.process(applicationContext, bytes, rotation, lut, mode, film, grainOn, stampText) }
+                    val result = runCatching { PhotoPipeline.process(applicationContext, bytes, rotation, lut, mode, film, grainOn, stampText, place?.first, place?.second) }
                     runOnUiThread {
                         if (mode == Mode.FILM) inFlightFilm--
-                        result.onSuccess { controller.onPhotoSaved(it, mode, film, rollStart) }
+                        result.onSuccess { controller.onPhotoSaved(it, mode, film, rollStart, place?.first, place?.second) }
                         result.onFailure {
                             Log.e("RetroCamera", "저장 실패", it)
                             controller.showToast("저장 실패: ${it.message}")

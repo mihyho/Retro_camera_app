@@ -100,6 +100,7 @@ fun CameraBody(
     ) {
         val w = constraints.maxWidth; val h = constraints.maxHeight
         val margin = with(d) { 8.dp.roundToPx() }
+        val vMargin = with(d) { 24.dp.roundToPx() }
         val topH = with(d) { 45.dp.roundToPx() }
         val band = with(d) { FILM_STRIP_HEIGHT.roundToPx() }
         val ctrl = with(d) { 123.dp.roundToPx() }
@@ -110,12 +111,17 @@ fun CameraBody(
             pY = topH
             pH = minOf((w - 2 * margin) * 5 / 4, h - topH - band - ctrl).coerceAtLeast(0); pW = pH * 4 / 5; pX = (w - pW) / 2
         } else {
-            pY = margin; pH = (h - 2 * margin).coerceAtLeast(0); pW = pH * 5 / 4; pX = margin // 가로로 들면 4:5를 눕힌 5:4
+            // 가로로 들면 4:5를 눕힌 5:4. 위아래에 여유를 둔다(가장자리를 쓸어 내리는 시스템 제스처 영역도 피한다)
+            pY = vMargin; pH = (h - 2 * vMargin).coerceAtLeast(0); pW = pH * 5 / 4; pX = margin
         }
         val rx = if (land) pX + pW + margin else 0
         val rw = (w - rx).coerceAtLeast(0)
-        val barY = if (land) insetTop else 0
-        val stripY = if (land) insetTop + topH + ((h - insetTop - insetBottom - topH - band - ctrl) / 2).coerceAtLeast(0) else pY + pH
+        val barY = if (land) insetTop + vMargin / 2 else 0
+        // 가로: 셔터 줄(89dp)은 아래 여유 위에 붙이고, 그 위로 간격을 두고 모드 줄(34dp)과 스트립을 쌓는다
+        val rowH = with(d) { 89.dp.roundToPx() }; val modesH = with(d) { 34.dp.roundToPx() }
+        val rowY = h - insetBottom - vMargin - rowH
+        val modesY = rowY - with(d) { 28.dp.roundToPx() } - modesH // 셔터 줄과의 간격이 스트립과의 간격보다 넓다
+        val stripY = if (land) maxOf(barY + topH, modesY - with(d) { 14.dp.roundToPx() } - band) else pY + pH
 
         AndroidView({ glView }, Modifier.fillMaxSize())
         if (c.perm == AppController.Perm.GRANTED) {
@@ -125,12 +131,17 @@ fun CameraBody(
                 // 가로에서는 프리뷰가 상태바 뒤까지 올라가므로, 필름 칩이 상태바 글자와 겹치지 않게 내린다
                 Viewfinder(c, onZoomBy, onZoomStep, onLoad, with(d) { (insetTop - margin).coerceAtLeast(0).toDp() })
             }
-            Column(Modifier.offset { IntOffset(rx, stripY) }.width(with(d) { rw.toDp() })) {
-                FilmStrip(c, origin = IntOffset(rx, stripY))
-                Controls(
-                    c, onLibrary, onShutter, onGrid,
-                    if (land) Modifier.height(123.dp) else Modifier.height(with(d) { (h - stripY - band).coerceAtLeast(0).toDp() }),
-                )
+            if (!land) {
+                Column(Modifier.offset { IntOffset(rx, stripY) }.width(with(d) { rw.toDp() })) {
+                    FilmStrip(c, origin = IntOffset(rx, stripY))
+                    Spacer(Modifier.height(8.dp)) // 스트립과 FILM/SINGLE 줄 사이를 살짝 띄운다
+                    Controls(c, onLibrary, onShutter, onGrid, Modifier.height((with(d) { (h - stripY - band).coerceAtLeast(0).toDp() } - 8.dp).coerceAtLeast(0.dp)))
+                }
+            } else {
+                // 가로: 스트립 → (좁은 간격) → FILM/SINGLE → (조금 더 넓은 간격) → 셔터 줄. 셔터 줄 위치는 그대로
+                Box(Modifier.offset { IntOffset(rx, stripY) }.width(with(d) { rw.toDp() })) { FilmStrip(c, origin = IntOffset(rx, stripY)) }
+                ModesRow(c, Modifier.offset { IntOffset(rx, modesY) }.width(with(d) { rw.toDp() }).height(34.dp))
+                ButtonsRow(c, onLibrary, onShutter, onGrid, Modifier.offset { IntOffset(rx, rowY) }.width(with(d) { rw.toDp() }).height(89.dp))
             }
         } else {
             PermissionOverlay(c)
@@ -232,17 +243,30 @@ private fun Shutter(onClick: () -> Unit) {
 /** 모드(FILM/SINGLE) 줄 + 셔터 줄. 보관함 버튼과 필름 그리드 버튼은 어느 방향에서나 셔터 좌우에 있다 */
 @Composable
 fun Controls(c: AppController, onLibrary: () -> Unit, onShutter: () -> Unit, onGrid: () -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier) {
+        ModesRow(c, Modifier.fillMaxWidth().height(34.dp))
+        ButtonsRow(c, onLibrary, onShutter, onGrid, Modifier.fillMaxWidth().weight(1f))
+    }
+}
+
+@Composable
+fun ModesRow(c: AppController, modifier: Modifier = Modifier) {
+    val s = c.state
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Row(horizontalArrangement = Arrangement.spacedBy(13.dp)) {
+            ModeLabel("FILM", s.mode == Mode.FILM) { c.setMode(Mode.FILM) }
+            ModeLabel("SINGLE", s.mode == Mode.SINGLE) { c.setMode(Mode.SINGLE) }
+        }
+    }
+}
+
+@Composable
+fun ButtonsRow(c: AppController, onLibrary: () -> Unit, onShutter: () -> Unit, onGrid: () -> Unit, modifier: Modifier = Modifier) {
     val s = c.state
     val roll = s.roll
     val libShape = RoundedCornerShape(12.dp)
-    Column(modifier) {
-        Box(Modifier.fillMaxWidth().height(34.dp), contentAlignment = Alignment.Center) {
-            Row(horizontalArrangement = Arrangement.spacedBy(13.dp)) {
-                ModeLabel("FILM", s.mode == Mode.FILM) { c.setMode(Mode.FILM) }
-                ModeLabel("SINGLE", s.mode == Mode.SINGLE) { c.setMode(Mode.SINGLE) }
-            }
-        }
-        Row(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 30.dp), verticalAlignment = Alignment.CenterVertically) {
+    run {
+        Row(modifier.padding(horizontal = 30.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                 Box(
                     Modifier.size(50.dp).clip(libShape).background(Ds.Bg2).border(1.5.dp, Ds.Line, libShape).tap(onClick = onLibrary),

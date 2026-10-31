@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -71,7 +72,7 @@ fun Thumb(shot: Shot, px: Int, modifier: Modifier, scale: ContentScale = Content
 fun NavBar(
     title: String, left: String? = null, onLeft: () -> Unit = {}, right: String? = null, onRight: () -> Unit = {},
     leftChevron: Boolean = false, rightEnabled: Boolean = true,
-    sub: String? = null,
+    sub: String? = null, rightColor: Color? = null,
 ) {
     Column(Modifier.fillMaxWidth().background(Ds.Bg)) {
         Box(Modifier.fillMaxWidth().height(44.dp)) {
@@ -89,7 +90,7 @@ fun NavBar(
             if (right != null) Box(
                 Modifier.align(Alignment.CenterEnd).height(44.dp).tap(enabled = rightEnabled, onClick = onRight).padding(horizontal = 16.dp),
                 contentAlignment = Alignment.Center,
-            ) { Text(right, if (rightEnabled) Ds.AccentInk else Ds.Sub, t17m, softWrap = false) }
+            ) { Text(right, if (rightEnabled) rightColor ?: Ds.AccentInk else Ds.Sub, t17m, softWrap = false) }
         }
         Hairline()
     }
@@ -152,10 +153,11 @@ fun ActionRow(label: String, color: Color = Ds.AccentInk, last: Boolean = false,
 // ── 알림창(iOS 7) ──
 
 @Composable
-fun IosAlert(title: String, msg: String, ok: String, onCancel: () -> Unit, onOk: () -> Unit) {
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .4f)).tap(onClick = onCancel), contentAlignment = Alignment.Center) {
+fun IosAlert(title: String, msg: String, ok: String, onCancel: () -> Unit, onOk: () -> Unit, progress: Float = 1f) {
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .4f * progress.coerceIn(0f, 1f))).tap(onClick = onCancel), contentAlignment = Alignment.Center) {
         Column(
-            Modifier.width(270.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF2A2620)).tap { /* 카드 안 탭이 닫힘으로 새지 않게 */ },
+            Modifier.width(270.dp).graphicsLayer { val k = .9f + .1f * progress; scaleX = k; scaleY = k; alpha = progress.coerceIn(0f, 1f) }
+                .clip(RoundedCornerShape(8.dp)).background(Color(0xFF2A2620)).tap { /* 카드 안 탭이 닫힘으로 새지 않게 */ },
         ) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, Ds.Ink, t17m.copy(textAlign = TextAlign.Center), Modifier.fillMaxWidth())

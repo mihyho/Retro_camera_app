@@ -3,7 +3,13 @@ package com.example.retrocamera.ui
 import android.opengl.GLSurfaceView
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.animation.core.spring
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -65,6 +71,11 @@ fun CameraScreen(
             onZoomBy = onZoomBy, onZoomStep = onZoomStep, onLoad = c::openLoad,
         )
 
+        // 페이지가 열리면 뒤의 카메라가 어두워진다(페이지와 같은 스프링으로 따라 움직여서 한 동작처럼 보인다)
+        val pageOpen = base == Panel.Gallery || base == Panel.Settings || viewer != null || base is Panel.Develop || c.loadOpen
+        val dim by animateFloatAsState(if (pageOpen) 1f else 0f, spring(1f, 380f), label = "dim")
+        if (dim > 0.001f) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .45f * dim.coerceIn(0f, 1f))))
+
         SlideRight(base == Panel.Gallery) { LibraryPage(c, onClose = { c.panel = null }) }
         SlideRight(base == Panel.Settings) { SettingsPage(c, onClose = { c.panel = null }) }
         SlideUp(base is Panel.Develop) {
@@ -73,27 +84,47 @@ fun CameraScreen(
         SlideRight(viewer != null) { (viewer ?: lastViewer[0])?.let { DetailPage(c, it) } }
         SlideUp(c.loadOpen) { FilmLoadModal(c) }
 
-        c.alert?.let { a -> IosAlert(a.title, a.msg, a.ok, onCancel = { c.alert = null }, onOk = a.onOk) }
+        // 알림창: 배경이 어두워지면서 카드가 살짝 커지며 나타난다. 닫힐 때도 내용이 남게 마지막 알림을 기억한다
+        val lastAlert = remember { arrayOfNulls<com.example.retrocamera.AlertState>(1) }
+        c.alert?.let { lastAlert[0] = it }
+        val alertP by animateFloatAsState(if (c.alert != null) 1f else 0f, spring(.8f, 420f), label = "alert")
+        if (alertP > 0.001f) lastAlert[0]?.let { a ->
+            IosAlert(a.title, a.msg, a.ok, onCancel = { c.alert = null }, onOk = a.onOk, progress = alertP)
+        }
 
+        // 알림(HUD): 위에서 내려와 나타나고, 사라질 때는 다시 위로 올라간다
+        val lastToast = remember { arrayOfNulls<String>(1) }
         c.toast?.let { t ->
+            lastToast[0] = t.text
             LaunchedEffect(t.id) { delay(2400); c.dismissToast(t.id) }
-            Box(Modifier.fillMaxSize().padding(top = 52.dp), contentAlignment = Alignment.TopCenter) { Hud(t.text) }
+        }
+        val toastP by animateFloatAsState(if (c.toast != null) 1f else 0f, spring(.85f, 420f), label = "toast")
+        if (toastP > 0.001f) lastToast[0]?.let { text ->
+            Box(
+                Modifier.fillMaxSize().padding(top = 52.dp).graphicsLayer { translationY = -(1f - toastP) * 28.dp.toPx(); alpha = toastP.coerceIn(0f, 1f) },
+                contentAlignment = Alignment.TopCenter,
+            ) { Hud(text) }
         }
     }
 }
 
-/** 오른쪽에서 밀려 들어오는 페이지(300ms) */
+// 페이지는 임계 감쇠 스프링(튕김 없음)으로 들어오고 같은 길로 나간다. 도착할 때 속도가 자연스럽게 줄어든다
+private val PageSpring = spring(dampingRatio = 1f, stiffness = 380f, visibilityThreshold = IntOffset.VisibilityThreshold)
+// 모달(아래에서 올라오는 시트)은 살짝 탄력을 줬다
+private val SheetSpring = spring(dampingRatio = .9f, stiffness = 420f, visibilityThreshold = IntOffset.VisibilityThreshold)
+
+/** 오른쪽에서 밀려 들어오는 페이지 */
 @Composable
 private fun SlideRight(visible: Boolean, content: @Composable () -> Unit) {
-    AnimatedVisibility(visible, Modifier.fillMaxSize(), enter = slideInHorizontally(tween(300)) { it }, exit = slideOutHorizontally(tween(300)) { it }) {
+    AnimatedVisibility(visible, Modifier.fillMaxSize(), enter = slideInHorizontally(PageSpring) { it }, exit = slideOutHorizontally(PageSpring) { it }) {
         Box(Modifier.fillMaxSize().background(Ds.Bg)) { content() }
     }
 }
 
-/** 아래에서 올라오는 모달(300ms) */
+/** 아래에서 올라오는 모달 */
 @Composable
 private fun SlideUp(visible: Boolean, content: @Composable () -> Unit) {
-    AnimatedVisibility(visible, Modifier.fillMaxSize(), enter = slideInVertically(tween(300)) { it }, exit = slideOutVertically(tween(300)) { it }) {
+    AnimatedVisibility(visible, Modifier.fillMaxSize(), enter = slideInVertically(SheetSpring) { it }, exit = slideOutVertically(PageSpring) { it }) {
         Box(Modifier.fillMaxSize().background(Ds.Bg)) { content() }
     }
 }
