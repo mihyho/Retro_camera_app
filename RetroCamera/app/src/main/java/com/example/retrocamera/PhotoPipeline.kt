@@ -151,8 +151,9 @@ object PhotoPipeline {
             val from0 = (y - top) * w                  // 변환할 가운데 행들의 시작/끝 인덱스
             val to0 = from0 + rows * w
             val total = to0 - from0
-            val chunk = (total + 3) / 4
-            IntStream.range(0, 4).parallel().forEach { c ->
+            val parts = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
+            val chunk = (total + parts - 1) / parts
+            IntStream.range(0, parts).parallel().forEach { c ->
                 val from = from0 + c * chunk
                 val to = minOf(to0, from + chunk)
                 if (from < to) {
