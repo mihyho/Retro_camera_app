@@ -64,7 +64,7 @@ fun CameraScreen(
     // 새 필름 만들기: 뒤로 가면 한 단계 전으로(편집 화면은 스스로 처리한다)
     BackHandler(enabled = c.alert == null && c.maker != null && c.maker != AppController.Maker.EDITOR) {
         when (c.maker) {
-            AppController.Maker.RESTORE, AppController.Maker.SOURCE -> c.maker = AppController.Maker.MENU
+            AppController.Maker.VAULT, AppController.Maker.SOURCE -> c.maker = AppController.Maker.MENU
             else -> c.closeMaker()
         }
     }
@@ -94,9 +94,9 @@ fun CameraScreen(
         }
         SlideRight(viewer != null) { (viewer ?: lastViewer[0])?.let { DetailPage(c, it) } }
         SlideUp(c.loadOpen) { FilmLoadModal(c) }
-        // 새 필름 만들기: 메뉴 → (기본 필름 불러오기 | 사진 고르기 → 촬영/불러오기) → 편집
+        // 새 필름 만들기: 메뉴 → (필름 보관함 | 사진 고르기 → 촬영/불러오기) → 편집
         SlideUp(c.maker == AppController.Maker.MENU) { FilmMenuModal(c) }
-        SlideUp(c.maker == AppController.Maker.RESTORE) { RestoreFilmModal(c) }
+        SlideUp(c.maker == AppController.Maker.VAULT) { FilmVaultModal(c) }
         SlideUp(c.maker == AppController.Maker.SOURCE) { FilmSourceModal(c) }
         val lastSource = remember { arrayOfNulls<AppController.EditorSource>(1) }
         c.editorSource?.let { lastSource[0] = it }

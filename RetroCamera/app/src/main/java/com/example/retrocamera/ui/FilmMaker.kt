@@ -9,6 +9,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.horizontalDrag
@@ -34,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -65,19 +67,31 @@ import androidx.compose.ui.unit.sp
 import com.example.retrocamera.AlertState
 import com.example.retrocamera.AppController
 import com.example.retrocamera.BoxBlur
-import com.example.retrocamera.Clarity
+import com.example.retrocamera.FilmDetail
 import com.example.retrocamera.FilmLook
 import com.example.retrocamera.LutApplier
 import com.example.retrocamera.PhotoPipeline
-import com.example.retrocamera.Texture
 import com.example.retrocamera.data.Film
+import com.example.retrocamera.data.ColorGrade
+import com.example.retrocamera.data.ColorMix
 import com.example.retrocamera.data.FilmAdjust
+import com.example.retrocamera.data.GradeZone
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.withContext
 import java.util.stream.IntStream
 import kotlin.math.abs
 import kotlin.math.roundToInt
+
+/** 편집 화면 전용 색. 앱 전체 토큰(Line 등)은 얇은 선용이라 어두워서, 면·슬라이더 홈·구분선은 따로 충분히 밝게 둔다 */
+private object Ed {
+    val Panel = Color(0xFF211F1B)    // 하단 패널 바탕(미리보기 영역보다 확실히 밝다)
+    val Header = Color(0xFF34312A)   // 접고 펼치는 제목줄(패널 바탕보다 한 단계 밝다)
+    val Track = Color(0xFF8A867B)    // 슬라이더 홈, 비활성 테두리
+    val Divider = Color(0x40F5F1E8)  // 구분선
+    val Disabled = Color(0x66F5F1E8) // 눌러도 소용없는 아이콘·글자
+    val Value = Color(0xFFD9D4C8)    // 기본값 그대로인 수치
+}
 
 // ───────────────────────── 보정 결과 만들기(비파괴) ─────────────────────────
 
@@ -103,14 +117,13 @@ object EditorRender {
         val clarity = a.clarityAmount
         val texture = a.textureAmount
         val base = BoxBlur.blurArgb(src.px, w, h, PhotoPipeline.detailRadius(w))
-        val large = if (clarity != 0f) Clarity.blur(src.px, w, h, Clarity.boxRadius(w)) else base
+        val wide = if (clarity != 0f) FilmDetail.blurLarge(src.px, w, h, FilmDetail.largeRadius(w)) else null
         val chunk = (px.size + 3) / 4
         IntStream.range(0, 4).parallel().forEach { c ->
             val from = c * chunk
             val to = minOf(px.size, from + chunk)
             if (from < to) {
-                if (clarity != 0f) Clarity.applyArgb(px, large, from, to, clarity)
-                if (texture != 0f) Texture.applyArgb(px, base, from, to, texture)
+                FilmDetail.applyArgb(px, base, wide, from, to, texture, clarity)
                 LutApplier.applyDetailSafe(px, base, from, to, lut)
             }
         }
@@ -134,47 +147,66 @@ private fun MenuRow(title: String, sub: String, icon: Ico, last: Boolean = false
     }
 }
 
-/** "+" 칸을 누르면 열리는 메뉴: 지웠던 기본 필름을 다시 넣거나, 새 필름을 만든다 */
+/** "+" 칸을 누르면 열리는 메뉴: 보관한 필름을 불러오는 필름 보관함, 또는 새 필름 만들기 */
 @Composable
 fun FilmMenuModal(c: AppController) {
     Column(Modifier.fillMaxSize().background(Ds.Bg2)) {
         NavBar("필름 추가", left = "닫기", onLeft = { c.closeMaker() })
         Column(Modifier.padding(top = 18.dp)) {
             Group {
-                MenuRow("기본 필름 불러오기", "지웠던 기본 필름을 다시 넣어요", Ico.IMAGES) { c.maker = AppController.Maker.RESTORE }
+                MenuRow("필름 보관함", c.storedFilms.size.let { if (it > 0) "보관한 필름 ${it}개 · 눌러서 불러와요" else "임시로 보관한 필름을 불러와요" }, Ico.IMAGES) { c.maker = AppController.Maker.VAULT }
                 MenuRow("새로운 필름 만들기", "사진을 보정해서 나만의 필름을 만들어요", Ico.EXPOSURE, last = true) { c.maker = AppController.Maker.SOURCE }
             }
         }
     }
 }
 
-/** 기본 제공 필름 전부를 보여 주고, 지운 필름을 누르면 제자리에 다시 넣는다. 이미 있는 필름은 "이미 들어있습니다"를 띄운다 */
+/**
+ * 필름 보관함: 필름 메뉴에서 보관한 필름이 들어 있다. 누르면 필름 메뉴에 다시 불러오고,
+ * 내가 만든 필름만 휴지통 버튼으로 완전히 지울 수 있다(기본 필름은 보관만 된다).
+ */
 @Composable
-fun RestoreFilmModal(c: AppController) {
+fun FilmVaultModal(c: AppController) {
+    val stored = c.storedFilms
     Column(Modifier.fillMaxSize().background(Ds.Bg2)) {
-        NavBar("기본 필름 불러오기", left = "뒤로", leftChevron = true, onLeft = { c.maker = AppController.Maker.MENU })
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
-            SectionNote("지운 필름을 누르면 원래 자리에 다시 들어가요.")
-            // 지운 필름이 영영 사라지지 않게, 내가 만든 필름도 아래에 같이 보여 준다
-            val mine = Film.entries.filter { it !in Film.builtIn }
-            listOf("기본 필름" to Film.builtIn, "내가 만든 필름" to mine).filter { it.second.isNotEmpty() }.forEach { (title, list) ->
-                SectionHeader(title)
-                Group {
-                    list.forEachIndexed { i, f ->
-                        val inside = f.key !in c.state.hiddenFilms
-                        Column(Modifier.fillMaxWidth().tap { c.restoreFilm(f) }) {
-                            Row(Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.size(10.dp).clip(CircleShape).background(f.glow()))
-                                Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                                    Text(f.displayName, if (inside) Ds.Sub else Ds.Ink, t17, softWrap = false)
-                                    Text(f.description, Ds.Sub, t12, softWrap = false)
+        NavBar("필름 보관함", left = "뒤로", leftChevron = true, onLeft = { c.maker = AppController.Maker.MENU })
+        if (stored.isEmpty()) {
+            Column(
+                Modifier.fillMaxWidth().padding(top = 80.dp, start = 24.dp, end = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(Ico.IMAGES, 40.dp, Ds.Sub)
+                Text("보관한 필름이 없어요", Ds.Ink, t17m)
+                Text("필름 메뉴에서 필름을 꾹 눌러 보관하면 여기에 들어와요.", Ds.Sub, t13.copy(textAlign = TextAlign.Center))
+            }
+        } else {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+                SectionNote("누르면 필름 메뉴에 다시 불러와요.")
+                // 기본 필름과 내가 만든 필름을 따로 보여 준다(비어 있는 쪽은 숨긴다)
+                listOf("기본 필름" to stored.filter { !it.isUserMade }, "내가 만든 필름" to stored.filter { it.isUserMade })
+                    .filter { it.second.isNotEmpty() }
+                    .forEach { (title, list) ->
+                        SectionHeader("$title · ${list.size}")
+                        Group {
+                            list.forEachIndexed { i, f ->
+                                Column(Modifier.fillMaxWidth().tap { c.unarchiveFilm(f) }) {
+                                    Row(Modifier.fillMaxWidth().height(56.dp).padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Box(Modifier.size(10.dp).clip(CircleShape).background(f.glow()))
+                                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                            Text(f.displayName, Ds.Ink, t17, softWrap = false)
+                                            Text(f.description, Ds.Sub, t12, softWrap = false)
+                                        }
+                                        Text("불러오기", Ds.Accent, t13)
+                                        if (f.isUserMade) Box(Modifier.size(52.dp).tap { c.askPurgeFilm(f) }, contentAlignment = Alignment.Center) {
+                                            Icon(Ico.TRASH, 20.dp, Ds.Danger)
+                                        } else Spacer(Modifier.width(16.dp))
+                                    }
+                                    if (i != list.lastIndex) Hairline()
                                 }
-                                Text(if (inside) "들어있음" else "다시 넣기", if (inside) Ds.Sub else Ds.Accent, t13)
                             }
-                            if (i != list.lastIndex) Hairline()
                         }
                     }
-                }
+                SectionNote("내가 만든 필름은 휴지통 버튼으로 완전히 지울 수 있어요. 기본 필름은 보관만 할 수 있어요.")
             }
         }
     }
@@ -212,10 +244,15 @@ fun CaptureBanner(c: AppController, modifier: Modifier = Modifier) {
 private class ParamDef(
     val label: String, val min: Float, val max: Float, val decimals: Int, val unit: String,
     val get: (FilmAdjust) -> Float, val set: (FilmAdjust, Float) -> FilmAdjust,
+    /** 기본값(초기화·가운데 표시 기준). 0이 아닌 항목(혼합 50 등)도 있다 */
+    val default: Float = 0f,
+    /** false면 +/- 부호 없이 그냥 숫자로 보인다(0~100 범위 항목) */
+    val signed: Boolean = true,
 ) {
     fun round(v: Float): Float = (if (decimals > 0) Math.round(v * 100f) / 100f else Math.round(v).toFloat()).coerceIn(min, max)
     fun format(v: Float): String = when {
         decimals > 0 -> if (abs(v) < 0.005f) "0.00$unit" else "%+.2f$unit".format(v)
+        !signed -> v.roundToInt().toString()
         else -> if (v.roundToInt() == 0) "0" else "%+d".format(v.roundToInt())
     }
 }
@@ -258,8 +295,12 @@ private class EditorState {
     private val redo = ArrayList<FilmAdjust>()
     private var editStart: FilmAdjust? = null
 
-    fun begin() { editStart = adjust }
+    /** 슬라이더·휠을 끄는 중인지: 끄는 동안은 미리보기를 작게 계산한다 */
+    var dragging by mutableStateOf(false)
+
+    fun begin() { editStart = adjust; dragging = true }
     fun end() {
+        dragging = false
         val s = editStart ?: return
         editStart = null
         if (s != adjust) { undo += s; redo.clear(); sync() }
@@ -274,19 +315,19 @@ private class EditorState {
 /** 가운데(0)가 기준인 가로 슬라이더. 끌면 값이 바뀌고, 두 번 빠르게 누르면 기본값으로 돌아간다. 값을 누르면 숫자를 직접 입력한다 */
 @Composable
 private fun AdjustSlider(def: ParamDef, value: Float, onStart: () -> Unit, onChange: (Float) -> Unit, onEnd: () -> Unit, onReset: () -> Unit, onEdit: () -> Unit) {
-    val changed = abs(value) > 0.0001f
+    val changed = abs(value - def.default) > 0.0001f
     // 제스처 블록은 한 번만 만들어지므로, 그 안에서 쓰는 값은 항상 최신 값을 읽어야 한다
     val latest by rememberUpdatedState(value)
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth().height(32.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(def.label, Ds.Ink, t15, Modifier.weight(1f))
             Box(Modifier.height(32.dp).tap(onClick = onEdit).padding(start = 16.dp), contentAlignment = Alignment.CenterEnd) {
-                Text(def.format(value), if (changed) Ds.Accent else Ds.Sub, t15.copy(fontWeight = if (changed) FontWeight.Medium else FontWeight.Normal))
+                Text(def.format(value), if (changed) Ds.Accent else Ed.Value, t15.copy(fontWeight = if (changed) FontWeight.Medium else FontWeight.Normal))
             }
         }
         var widthPx by remember { mutableFloatStateOf(1f) }
         val accent = Ds.Accent
-        val line = Ds.Line
+        val line = Ed.Track
         Box(
             Modifier.fillMaxWidth().height(40.dp).onSizeChanged { widthPx = it.width.toFloat() }.pointerInput(def) {
                 var lastTap = 0L
@@ -295,20 +336,31 @@ private fun AdjustSlider(def: ParamDef, value: Float, onStart: () -> Unit, onCha
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val track = (size.width - 2 * 14.dp.toPx()).coerceAtLeast(1f)
                     val startValue = latest
-                    var moved = false
-                    onStart()
-                    horizontalDrag(down.id) { ch ->
-                        if (!moved && abs(ch.position.x - down.position.x) > slop) moved = true
-                        if (moved) {
+                    // 처음 터치 슬롭을 넘는 순간 방향을 정한다: 가로면 슬라이더, 세로면 패널 스크롤에 맡기고 슬라이더는 건드리지 않는다
+                    var horizontal = false
+                    var vertical = false
+                    while (true) {
+                        val ev = awaitPointerEvent()
+                        val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!ch.pressed) break
+                        if (!horizontal && !vertical) {
+                            if (ch.isConsumed) { vertical = true; break } // 스크롤이 먼저 가져갔다
+                            val dx = ch.position.x - down.position.x
+                            val dy = ch.position.y - down.position.y
+                            if (abs(dx) > slop || abs(dy) > slop) {
+                                if (abs(dx) > abs(dy)) { horizontal = true; onStart() } else { vertical = true; break }
+                            }
+                        }
+                        if (horizontal) {
                             val raw = startValue + (ch.position.x - down.position.x) / track * (def.max - def.min)
                             var v = def.round(raw)
-                            if (abs(v) < (def.max - def.min) * 0.012f) v = 0f // 가운데 근처에서는 0에 붙는다
+                            if (abs(v - def.default) < (def.max - def.min) * 0.012f) v = def.default // 기본값 근처에서는 기본값에 붙는다
                             onChange(v)
                             ch.consume()
                         }
                     }
-                    onEnd()
-                    if (!moved) {
+                    if (horizontal) onEnd()
+                    else if (!vertical) { // 움직이지 않고 뗐다: 두 번 빠르게 누르면 기본값으로
                         val now = System.currentTimeMillis()
                         if (now - lastTap < 300) onReset()
                         lastTap = now
@@ -322,10 +374,10 @@ private fun AdjustSlider(def: ParamDef, value: Float, onStart: () -> Unit, onCha
                 val x0 = pad; val x1 = size.width - pad
                 val f = ((value - def.min) / (def.max - def.min)).coerceIn(0f, 1f)
                 val tx = x0 + (x1 - x0) * f
-                val cx = (x0 + x1) / 2
-                drawLine(line, Offset(x0, y), Offset(x1, y), 3.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
-                drawLine(Color.White.copy(alpha = .5f), Offset(cx, y - 7.dp.toPx()), Offset(cx, y + 7.dp.toPx()), 2.dp.toPx())
-                if (changed) drawLine(accent, Offset(cx, y), Offset(tx, y), 3.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                val cx = x0 + (x1 - x0) * ((def.default - def.min) / (def.max - def.min)) // 기본값 위치(보통 가운데)
+                drawLine(line, Offset(x0, y), Offset(x1, y), 4.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                drawLine(Color.White.copy(alpha = .95f), Offset(cx, y - 9.dp.toPx()), Offset(cx, y + 9.dp.toPx()), 2.dp.toPx())
+                if (changed) drawLine(accent, Offset(cx, y), Offset(tx, y), 4.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
                 drawCircle(Color.Black.copy(alpha = .35f), 11.dp.toPx(), Offset(tx, y + 1.dp.toPx()))
                 drawCircle(if (changed) accent else Color.White, 10.dp.toPx(), Offset(tx, y))
             }
@@ -344,10 +396,13 @@ fun FilmEditor(c: AppController, source: AppController.EditorSource) {
     val proxy = remember(source) { EditorRender.proxy(source) }
     val original = remember(proxy) { Bitmap.createBitmap(proxy.px, proxy.w, proxy.h, Bitmap.Config.ARGB_8888).asImageBitmap() }
     var shown by remember(proxy) { mutableStateOf<ImageBitmap?>(null) }
-    // 보정값이 바뀔 때마다 원본 픽셀에서 다시 계산한다. 계산 중에 값이 또 바뀌면 이전 계산은 버린다
+    // 슬라이더를 끄는 동안은 작은 사본으로 빨리, 손을 떼면 선명한 사본으로 다시 계산한다
+    val quick = remember(source) { EditorRender.proxy(source, 480) }
+    // 보정값이 바뀔 때마다 원본 픽셀에서 다시 계산한다. 계산은 한 번에 하나만 하고, 그 사이 바뀐 값은 최신 것 하나만 남긴다
+    // (계산이 쌓이면 CPU를 다 써서 화면이 끊긴다. 계산을 취소하는 collectLatest는 CPU 루프를 못 멈춰서 쓰지 않는다)
     LaunchedEffect(proxy) {
-        snapshotFlow { st.adjust }.collectLatest { a ->
-            shown = withContext(Dispatchers.Default) { EditorRender.render(proxy, a).asImageBitmap() }
+        snapshotFlow { st.adjust to st.dragging }.conflate().collect { (a, dragging) ->
+            shown = withContext(Dispatchers.Default) { EditorRender.render(if (dragging) quick else proxy, a).asImageBitmap() }
         }
     }
     var showOriginal by remember { mutableStateOf(false) }
@@ -363,13 +418,13 @@ fun FilmEditor(c: AppController, source: AppController.EditorSource) {
     val land = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     Box(Modifier.fillMaxSize().background(Ds.Bg2)) {
         val topBar: @Composable () -> Unit = {
-            Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().background(Ds.Bg).height(48.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(44.dp).tap {
                     if (st.adjust.isNeutral) c.closeMaker()
                     else c.alert = AlertState("만들기를 그만둘까요?", "지금까지 한 보정이 사라져요.", "그만두기") { c.alert = null; c.closeMaker() }
                 }, contentAlignment = Alignment.Center) { Icon(Ico.CHEVRON_LEFT, 24.dp, Ds.Ink) }
-                Box(Modifier.size(44.dp).tap(enabled = st.canUndo) { st.undoStep() }, contentAlignment = Alignment.Center) { Icon(Ico.UNDO, 22.dp, if (st.canUndo) Ds.Ink else Ds.Line) }
-                Box(Modifier.size(44.dp).tap(enabled = st.canRedo) { st.redoStep() }, contentAlignment = Alignment.Center) { Icon(Ico.REDO, 22.dp, if (st.canRedo) Ds.Ink else Ds.Line) }
+                Box(Modifier.size(44.dp).tap(enabled = st.canUndo) { st.undoStep() }, contentAlignment = Alignment.Center) { Icon(Ico.UNDO, 22.dp, if (st.canUndo) Ds.Ink else Ed.Disabled) }
+                Box(Modifier.size(44.dp).tap(enabled = st.canRedo) { st.redoStep() }, contentAlignment = Alignment.Center) { Icon(Ico.REDO, 22.dp, if (st.canRedo) Ds.Ink else Ed.Disabled) }
                 Spacer(Modifier.weight(1f))
                 // 누르고 있는 동안 원본을 보여 준다
                 Box(
@@ -404,25 +459,29 @@ fun FilmEditor(c: AppController, source: AppController.EditorSource) {
             }
         }
         val panel: @Composable (Modifier) -> Unit = { mod ->
-            Column(mod.background(Ds.Bg).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
-                if (!st.adjust.isNeutral) Box(Modifier.fillMaxWidth().height(36.dp).tap { st.change(FilmAdjust()) }.padding(horizontal = 16.dp), contentAlignment = Alignment.CenterEnd) {
-                    Text("모두 초기화", Ds.Sub, t13)
+            Column(mod.background(Ed.Panel).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+                Box(Modifier.fillMaxWidth().height(36.dp).tap(enabled = !st.adjust.isNeutral) { st.change(FilmAdjust()) }.padding(horizontal = 16.dp), contentAlignment = Alignment.CenterEnd) {
+                    if (!st.adjust.isNeutral) Text("모두 초기화", Ed.Value, t13)
                 }
-                SECTIONS.forEach { sec ->
-                    val isOpen = sec.title in open
-                    Hairline()
-                    Row(Modifier.fillMaxWidth().height(48.dp).tap { open = if (isOpen) open - sec.title else open + sec.title }.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(sec.title, Ds.Ink, t17m, Modifier.weight(1f))
-                        Icon(Ico.CHEVRON_DOWN, 20.dp, Ds.Sub, Modifier.graphicsLayer { rotationZ = if (isOpen) 180f else 0f })
+                // 빛 → 색상 → 색상 혼합(HSL) → 색 보정(3-way 휠) → 효과
+                listOf("빛", "색상", "색상 혼합", "색 보정", "효과").forEach { title ->
+                    val isOpen = title in open
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(Ed.Divider))
+                    // 제목줄은 바탕보다 밝고, 펼쳐진 것은 앞에 포인트 색 막대가 붙는다
+                    Row(
+                        Modifier.fillMaxWidth().background(Ed.Header).height(48.dp).tap { open = if (isOpen) open - title else open + title },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.width(4.dp).fillMaxHeight().background(if (isOpen) Ds.Accent else Color.Transparent))
+                        Text(title, Ds.Ink, t17m, Modifier.weight(1f).padding(start = 12.dp))
+                        Icon(Ico.CHEVRON_DOWN, 22.dp, Ds.Ink, Modifier.padding(end = 16.dp).graphicsLayer { rotationZ = if (isOpen) 180f else 0f })
                     }
-                    if (isOpen) sec.groups.forEach { g ->
-                        g.title?.let { Text(it, Ds.Sub, t11.copy(letterSpacing = 1.sp), Modifier.padding(start = 16.dp, top = 6.dp, bottom = 2.dp)) }
-                        g.params.forEach { p ->
-                            AdjustSlider(
-                                p, p.get(st.adjust),
-                                onStart = { st.begin() }, onChange = { v -> st.adjust = p.set(st.adjust, v) }, onEnd = { st.end() },
-                                onReset = { st.change(p.set(st.adjust, 0f)) }, onEdit = { entry = p },
-                            )
+                    if (isOpen) when (title) {
+                        "색상 혼합" -> MixSection(st) { entry = it }
+                        "색 보정" -> GradeSection(st) { entry = it }
+                        else -> SECTIONS.first { it.title == title }.groups.forEach { g ->
+                            g.title?.let { Text(it, Ds.Sub, t11.copy(letterSpacing = 1.sp), Modifier.padding(start = 16.dp, top = 6.dp, bottom = 2.dp)) }
+                            g.params.forEach { p -> ParamSlider(st, p) { entry = it } }
                         }
                     }
                 }
@@ -470,7 +529,7 @@ private fun NumberEntry(def: ParamDef, value: Float, onDone: (Float) -> Unit, on
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Box(Modifier.height(40.dp).tap { onDone(0f) }.padding(end = 12.dp), contentAlignment = Alignment.CenterStart) { Text("초기화", Ds.Sub, t15) }
+                Box(Modifier.height(40.dp).tap { onDone(def.default) }.padding(end = 12.dp), contentAlignment = Alignment.CenterStart) { Text("초기화", Ds.Sub, t15) }
                 Row {
                     Box(Modifier.height(40.dp).tap(onClick = onCancel).padding(horizontal = 12.dp), contentAlignment = Alignment.Center) { Text("취소", Ds.Sub, t15) }
                     Box(Modifier.height(40.dp).tap { text.toFloatOrNull()?.let(onDone) ?: onCancel() }.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) { Text("확인", Ds.Accent, t15.copy(fontWeight = FontWeight.Medium)) }
@@ -561,7 +620,7 @@ private fun BarButton(label: String, danger: Boolean = false, enabled: Boolean =
         Modifier.height(42.dp).clip(RoundedCornerShape(21.dp)).background(Ds.Glass).border(1.dp, Ds.Line, RoundedCornerShape(21.dp))
             .tap(enabled = enabled, onClick = onClick).padding(horizontal = 18.dp),
         contentAlignment = Alignment.Center,
-    ) { Text(label, if (!enabled) Ds.Line else if (danger) Ds.Danger else Ds.Ink, t15.copy(fontWeight = FontWeight.Medium), softWrap = false) }
+    ) { Text(label, if (!enabled) Ed.Disabled else if (danger) Ds.Danger else Ds.Ink, t15.copy(fontWeight = FontWeight.Medium), softWrap = false) }
 }
 
 @Composable
@@ -569,11 +628,11 @@ private fun BarArrow(left: Boolean, enabled: Boolean, onClick: () -> Unit) {
     Box(
         Modifier.size(42.dp).clip(CircleShape).background(Ds.Glass).border(1.dp, Ds.Line, CircleShape).tap(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { Icon(Ico.CHEVRON_LEFT, 22.dp, if (enabled) Ds.Ink else Ds.Line, Modifier.graphicsLayer { rotationZ = if (left) 0f else 180f }) }
+    ) { Icon(Ico.CHEVRON_LEFT, 22.dp, if (enabled) Ds.Ink else Ed.Disabled, Modifier.graphicsLayer { rotationZ = if (left) 0f else 180f }) }
 }
 
 /**
- * 필름 메뉴(그리드)가 열려 있는 동안 필름 스트립 대신 보이는 줄. 필름을 꾹 눌러 고르면 취소 / 앞으로·뒤로(한 개만 골랐을 때) / 삭제가 나온다.
+ * 필름 메뉴(그리드)가 열려 있는 동안 필름 스트립 대신 보이는 줄. 필름을 꾹 눌러 고르면 취소 / 앞으로·뒤로(한 개만 골랐을 때) / 보관이 나온다.
  */
 @Composable
 fun FilmMenuBar(c: AppController, modifier: Modifier = Modifier) {
@@ -581,7 +640,7 @@ fun FilmMenuBar(c: AppController, modifier: Modifier = Modifier) {
     val films = c.visibleFilms
     Box(modifier.fillMaxWidth().height(FILM_STRIP_HEIGHT), contentAlignment = Alignment.Center) {
         if (sel.isEmpty()) {
-            Text("필름을 꾹 누르면 골라서 지우거나 순서를 바꿀 수 있어요", Ds.Sub, t13.copy(textAlign = TextAlign.Center), Modifier.padding(horizontal = 28.dp))
+            Text("필름을 꾹 누르면 골라서 보관하거나 순서를 바꿀 수 있어요", Ds.Sub, t13.copy(textAlign = TextAlign.Center), Modifier.padding(horizontal = 28.dp))
         } else {
             val one = sel.singleOrNull()
             val i = films.indexOfFirst { it.key == one }
@@ -591,8 +650,169 @@ fun FilmMenuBar(c: AppController, modifier: Modifier = Modifier) {
                     BarArrow(left = true, enabled = i > 0) { c.moveSelectedFilm(-1) }
                     BarArrow(left = false, enabled = i in 0 until films.lastIndex) { c.moveSelectedFilm(1) }
                 }
-                BarButton(if (sel.size == 1) "삭제" else "삭제 ${sel.size}", danger = true) { c.askDeleteFilms(films.filter { it.key in sel }) }
+                BarButton(if (sel.size == 1) "보관" else "보관 ${sel.size}") { c.askArchiveFilms(films.filter { it.key in sel }) }
             }
         }
+    }
+}
+
+// ───────────────────────── 색상 혼합 · 색 보정 패널 ─────────────────────────
+
+@Composable
+private fun ParamSlider(st: EditorState, p: ParamDef, onEdit: (ParamDef) -> Unit) {
+    AdjustSlider(
+        p, p.get(st.adjust),
+        onStart = { st.begin() }, onChange = { v -> st.adjust = p.set(st.adjust, v) }, onEnd = { st.end() },
+        onReset = { st.change(p.set(st.adjust, p.default)) }, onEdit = { onEdit(p) },
+    )
+}
+
+private fun listWith(l: List<Float>, i: Int, v: Float): List<Float> = l.toMutableList().also { it[i] = v }
+
+/** 색 계열 ch의 색조(kind 0)/채도(1)/광도(2) 슬라이더 */
+private fun mixDef(label: String, ch: Int, kind: Int) = ParamDef(
+    label, -100f, 100f, 0, "",
+    { a -> (when (kind) { 0 -> a.mix.hue; 1 -> a.mix.sat; else -> a.mix.lum })[ch] },
+    { a, v ->
+        a.copy(mix = when (kind) {
+            0 -> a.mix.copy(hue = listWith(a.mix.hue, ch, v))
+            1 -> a.mix.copy(sat = listWith(a.mix.sat, ch, v))
+            else -> a.mix.copy(lum = listWith(a.mix.lum, ch, v))
+        })
+    },
+)
+
+/** 빨강·주황·노랑·초록·청록·파랑·자주·보라 중 하나를 골라 그 색 계열의 색조/채도/광도를 조절한다 */
+@Composable
+private fun MixSection(st: EditorState, onEdit: (ParamDef) -> Unit) {
+    var ch by remember { mutableIntStateOf(0) }
+    val defs = remember(ch) { listOf(mixDef("색조", ch, 0), mixDef("채도", ch, 1), mixDef("광도", ch, 2)) }
+    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+        repeat(ColorMix.COUNT) { i ->
+            val m = st.adjust.mix
+            val edited = m.hue[i] != 0f || m.sat[i] != 0f || m.lum[i] != 0f
+            Box(
+                Modifier.size(34.dp).clip(CircleShape).background(Color.hsv(ColorMix.CENTERS[i], .72f, .95f))
+                    .then(if (i == ch) Modifier.border(3.dp, Ds.Ink, CircleShape) else Modifier).tap { ch = i },
+                contentAlignment = Alignment.Center,
+            ) { if (edited) Box(Modifier.size(8.dp).clip(CircleShape).background(Color.White)) }
+        }
+    }
+    Text(ColorMix.NAMES[ch], Ds.Sub, t11.copy(letterSpacing = 1.sp), Modifier.padding(start = 16.dp, bottom = 2.dp))
+    defs.forEach { ParamSlider(st, it, onEdit) }
+}
+
+private fun zoneOf(g: ColorGrade, i: Int) = when (i) { 0 -> g.shadows; 1 -> g.mids; else -> g.highlights }
+
+private fun withZone(a: FilmAdjust, i: Int, z: GradeZone): FilmAdjust = a.copy(grade = when (i) {
+    0 -> a.grade.copy(shadows = z)
+    1 -> a.grade.copy(mids = z)
+    else -> a.grade.copy(highlights = z)
+})
+
+private val ZONE_NAMES = listOf("어두운 영역", "중간 영역", "밝은 영역")
+
+/** 어두운/중간/밝은 영역마다 컬러 휠(색조=각도, 채도=중심에서의 거리)과 광도를 정하고, 혼합·균형으로 영역 경계를 다듬는다 */
+@Composable
+private fun GradeSection(st: EditorState, onEdit: (ParamDef) -> Unit) {
+    var zone by remember { mutableIntStateOf(0) }
+    val z = zoneOf(st.adjust.grade, zone)
+    val lumDef = remember(zone) {
+        ParamDef("광도", -100f, 100f, 0, "", { zoneOf(it.grade, zone).lum }, { a, v -> withZone(a, zone, zoneOf(a.grade, zone).copy(lum = v)) })
+    }
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        repeat(3) { i ->
+            val zi = zoneOf(st.adjust.grade, i)
+            val on = i == zone
+            Row(
+                Modifier.weight(1f).height(36.dp).clip(RoundedCornerShape(18.dp)).background(if (on) Ds.Glass else Color.Transparent)
+                    .border(1.dp, if (on) Ds.Accent else Ed.Track, RoundedCornerShape(18.dp)).tap { zone = i },
+                horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // 이 영역에 입힌 색을 점으로 보여 준다
+                Box(Modifier.size(9.dp).clip(CircleShape).background(if (zi.sat > 0f) Color.hsv(zi.hue, (zi.sat / 100f).coerceIn(.25f, 1f), 1f) else Ed.Track))
+                Text(ZONE_NAMES[i], if (on) Ds.Ink else Ds.Sub, t11, Modifier.padding(start = 6.dp), softWrap = false)
+            }
+        }
+    }
+    Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+        ColorWheel(
+            z.hue, z.sat,
+            onStart = { st.begin() },
+            onChange = { h, s -> st.adjust = withZone(st.adjust, zone, zoneOf(st.adjust.grade, zone).copy(hue = h, sat = s)) },
+            onEnd = { st.end() },
+            onReset = { st.change(withZone(st.adjust, zone, zoneOf(st.adjust.grade, zone).copy(hue = 0f, sat = 0f))) },
+            Modifier.size(224.dp),
+        )
+    }
+    Text(
+        "색조 ${z.hue.roundToInt()}°  ·  채도 ${z.sat.roundToInt()}", if (z.sat > 0f) Ds.Accent else Ds.Sub, t13.copy(textAlign = TextAlign.Center),
+        Modifier.fillMaxWidth().padding(bottom = 4.dp),
+    )
+    ParamSlider(st, lumDef, onEdit)
+}
+
+/**
+ * 색조는 원 둘레의 각도, 채도는 중심에서 떨어진 거리(중심 = 0)다. 끌면 바로 따라오고, 두 번 빠르게 누르면 중심(색 없음)으로 돌아간다.
+ * 휠 그림은 색상환(스윕 그라디언트) 위에 중심이 회색인 방사형 그라디언트를 덮어 만든다.
+ */
+@Composable
+private fun ColorWheel(hue: Float, sat: Float, onStart: () -> Unit, onChange: (Float, Float) -> Unit, onEnd: () -> Unit, onReset: () -> Unit, modifier: Modifier = Modifier) {
+    val hues = remember { (0..6).map { Color.hsv(it * 60f, 1f, 1f) } }
+    // 제스처 블록은 한 번만 만들어지므로, 탭(영역)을 바꿔도 지금 영역을 가리키도록 최신 콜백을 읽는다
+    val start by rememberUpdatedState(onStart)
+    val change by rememberUpdatedState(onChange)
+    val end by rememberUpdatedState(onEnd)
+    val reset by rememberUpdatedState(onReset)
+    Canvas(
+        modifier.pointerInput(Unit) {
+            var lastTap = 0L
+            val slop = viewConfiguration.touchSlop
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                val cx = size.width / 2f; val cy = size.height / 2f
+                val r = minOf(cx, cy) - 8.dp.toPx()
+                fun update(p: Offset) {
+                    val dx = p.x - cx; val dy = p.y - cy
+                    val angle = ((Math.toDegrees(Math.atan2(dy.toDouble(), dx.toDouble())).toFloat() % 360f) + 360f) % 360f
+                    change(angle, (Math.hypot(dx.toDouble(), dy.toDouble()).toFloat() / r).coerceIn(0f, 1f) * 100f)
+                }
+                // 원 바깥에서 시작한 터치는 휠이 아니라 패널을 스크롤하는 손짓이다
+                if (Math.hypot((down.position.x - cx).toDouble(), (down.position.y - cy).toDouble()) > r + 10.dp.toPx()) return@awaitEachGesture
+                start()
+                var moved = false
+                // 손가락이 살짝 떨리는 정도(터치 슬롭 이내)는 끌기가 아니라 탭으로 본다: 두 번 탭하면 0으로 돌아간다
+                drag(down.id) { ch ->
+                    if (!moved && (ch.position - down.position).getDistance() > slop) moved = true
+                    if (moved) { update(ch.position); ch.consume() }
+                }
+                if (moved) {
+                    end()
+                } else {
+                    val now = System.currentTimeMillis()
+                    if (now - lastTap < 350) {
+                        end()
+                        reset() // 휠을 두 번 빠르게 누르면 색 없음(중심)으로
+                        lastTap = 0L
+                    } else {
+                        update(down.position) // 한 번 누르면 그 자리의 색으로
+                        end()
+                        lastTap = now
+                    }
+                }
+            }
+        },
+    ) {
+        val c = Offset(size.width / 2f, size.height / 2f)
+        val r = minOf(c.x, c.y) - 8.dp.toPx()
+        drawCircle(Brush.sweepGradient(hues, c), r, c)
+        drawCircle(Brush.radialGradient(listOf(Color(0xFF8C8C8C), Color(0x008C8C8C)), c, r), r, c)
+        drawCircle(Color.White.copy(alpha = .25f), r, c, style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
+        val rad = Math.toRadians(hue.toDouble())
+        val d = sat / 100f * r
+        val h = Offset(c.x + (Math.cos(rad) * d).toFloat(), c.y + (Math.sin(rad) * d).toFloat())
+        drawCircle(Color.Black.copy(alpha = .35f), 13.dp.toPx(), h + Offset(0f, 1.dp.toPx()))
+        drawCircle(Color.White, 12.dp.toPx(), h)
+        drawCircle(if (sat > 0f) Color.hsv(hue, (sat / 100f).coerceIn(.2f, 1f), 1f) else Color(0xFF8C8C8C), 8.dp.toPx(), h)
     }
 }

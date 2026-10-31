@@ -85,5 +85,7 @@ object RollEngine {
     fun setStamp(s: AppState, v: Boolean) = s.copy(stamp = v)
     fun setVolumeShutter(s: AppState, v: Boolean) = s.copy(volumeShutter = v)
     fun setGrain(s: AppState, v: Boolean) = s.copy(grainOn = v)
+    fun setGrainLook(s: AppState, amount: Float = s.grainAmount, size: Float = s.grainSize) =
+        s.copy(grainAmount = amount.coerceIn(0f, 2f), grainSize = size.coerceIn(0.5f, 4f))
     fun setRecordLocation(s: AppState, v: Boolean) = s.copy(recordLocation = v)
 }

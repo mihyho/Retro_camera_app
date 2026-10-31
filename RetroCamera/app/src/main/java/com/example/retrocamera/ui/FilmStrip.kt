@@ -61,7 +61,7 @@ private fun edgeFade(center: Float, width: Int): Float =
 /**
  * 필름 스트립. 칩 안의 그림은 GL 렌더러가 같은 실시간 영상에 그 필름 LUT를 입혀 그린다(여기서는 위치만 알려 준다).
  * 손가락을 1:1로 따라가고, 놓으면 속도로 도착 지점을 예측해 가까운 필름에 스프링으로 붙는다.
- * 끝의 "+" 칸을 누르면 새 필름 메뉴가 열리고, 필름 칩을 꾹 누르면 그 필름을 지울 수 있다.
+ * 끝의 "+" 칸을 누르면 새 필름 메뉴가 열리고, 필름 칩을 꾹 누르면 그 필름을 보관할 수 있다.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -94,7 +94,7 @@ fun FilmStrip(c: AppController, origin: IntOffset, modifier: Modifier = Modifier
         if (!locked && !hidden && nearFilm != null) { Ds.liveFilm = nearFilm; c.onLiveFilm?.invoke(nearFilm) }
     }
 
-    // 바깥(그리드·필름 지우기 등)에서 필름이 바뀌어도 따라간다. 드래그 직후에는 같은 목표라 속도가 이어진다
+    // 바깥(그리드·필름 보관 등)에서 필름이 바뀌어도 따라간다. 드래그 직후에는 같은 목표라 속도가 이어진다
     LaunchedEffect(cur, step) { pos.animateTo(-cur * step, spec) }
 
     // 칩 위치를 GL 렌더러에 알린다. 타일 번호(slot)마다 8개: x, y(뷰 위쪽 기준), 크기, 투명도, 링 두께(0이면 없음), 링 색 r g b.
@@ -171,14 +171,14 @@ fun FilmStrip(c: AppController, origin: IntOffset, modifier: Modifier = Modifier
                 val fade = { edgeFade((width - step) / 2f + pos.value + i * step + step / 2f, width) }
                 val f = shown.getOrNull(i)
                 Column(
-                    Modifier.width(STEP).combinedClickable(onClick = { pick(i) }, onLongClick = { f?.let { c.askDeleteFilm(it) } }),
+                    Modifier.width(STEP).combinedClickable(onClick = { pick(i) }, onLongClick = { f?.let { c.askArchiveFilm(it) } }),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     if (f != null) {
                         // 그림과 링은 GL이 그린다(같은 프레임에 그려야 안 어긋난다). 여기는 자리만 잡는다
                         Box(Modifier.size(CHIP))
                     } else {
-                        // "+" 칸: 새 필름 만들기 / 기본 필름 불러오기
+                        // "+" 칸: 새 필름 만들기 / 필름 보관함
                         Box(
                             Modifier.size(CHIP).graphicsLayer { scaleX = 1f - .1f * d(); scaleY = scaleX; alpha = (1f - .45f * d()) * fade() }
                                 .clip(RoundedCornerShape(18.dp)).border(1.5.dp, if (i == near) Ds.Accent else Ds.Line, RoundedCornerShape(18.dp)),

@@ -1,5 +1,7 @@
 package com.example.retrocamera
 
+import com.example.retrocamera.data.ColorGrade
+import com.example.retrocamera.data.ColorMix
 import com.example.retrocamera.data.FilmAdjust
 import kotlin.math.abs
 import kotlin.math.pow
@@ -7,7 +9,7 @@ import kotlin.math.pow
 /**
  * 라이트룸 방식 보정값(노출·대비·밝은/어두운 영역·흰색/검정·색온도·색조·생동감·채도·디헤이즈)을 색 변환 하나로 계산하고,
  * 그 변환을 33^3 3D LUT로 굽는다. LUT 하나라서 필름 스트립 칩·프리뷰·촬영본·편집 화면이 똑같은 색을 낸다.
- * (텍스처·명료도는 이웃 픽셀이 필요한 세부 처리라 LUT가 아니라 Film.texture / Film.clarity로 따로 적용한다.)
+ * (텍스처·명료도는 이웃 픽셀이 필요한 세부 처리라 LUT가 아니라 Film.texture / Film.localContrast(FilmDetail)로 따로 적용한다.)
  * Android 의존성이 없어 JVM 단위 테스트가 된다.
  */
 object FilmLook {
@@ -65,9 +67,104 @@ object FilmLook {
         val chroma = maxOf(r, g, b) - minOf(r, g, b)
         val vib = 1f + a.vibrance / 100f * (1f - chroma)
         val sat = (1f + a.saturation / 100f) * satBoost * vib
-        c[0] = (l1 + (r - l1) * sat).coerceIn(0f, 1f)
-        c[1] = (l1 + (g - l1) * sat).coerceIn(0f, 1f)
-        c[2] = (l1 + (b - l1) * sat).coerceIn(0f, 1f)
+        r = (l1 + (r - l1) * sat).coerceIn(0f, 1f)
+        g = (l1 + (g - l1) * sat).coerceIn(0f, 1f)
+        b = (l1 + (b - l1) * sat).coerceIn(0f, 1f)
+
+        // 7) 색상 혼합(HSL) 다음에 색 보정(3-way). 라이트룸과 같은 순서
+        c[0] = r; c[1] = g; c[2] = b
+        if (a.mix != ColorMix()) colorMix(a.mix, c)
+        if (a.grade != ColorGrade()) colorGrade(a.grade, c)
+    }
+
+    /**
+     * 색상 혼합: RGB → HSL로 바꿔 색조에 따라 8개 계열 중 이웃한 두 계열의 가중 평균만큼 색조·채도·광도를 바꾸고 RGB로 되돌린다.
+     * 회색에 가까운 픽셀(채도가 낮은 곳)은 색조가 불안정해서 거의 건드리지 않는다.
+     */
+    private fun colorMix(m: ColorMix, c: FloatArray) {
+        val chroma = maxOf(c[0], c[1], c[2]) - minOf(c[0], c[1], c[2])
+        val gate = smooth(0f, 0.12f, chroma)
+        if (gate <= 0f) return
+        val hsl = FloatArray(3)
+        rgbToHsl(c[0], c[1], c[2], hsl)
+        // 이 색조가 놓인 두 계열(i, j)과 그 사이 위치 t. 중심 색조는 원형이라 마지막 계열 다음은 첫 계열(빨강)
+        val centers = ColorMix.CENTERS
+        var i = centers.size - 1
+        for (k in centers.indices) if (hsl[0] >= centers[k]) i = k
+        val j = (i + 1) % centers.size
+        val start = centers[i]
+        val span = ((centers[j] - start) + 360f) % 360f
+        val t = smooth(0f, 1f, (((hsl[0] - start) + 360f) % 360f) / span)
+        val wi = 1f - t; val wj = t
+        val dh = wi * m.hue[i] + wj * m.hue[j]
+        val ds = wi * m.sat[i] + wj * m.sat[j]
+        val dl = wi * m.lum[i] + wj * m.lum[j]
+        val h = (hsl[0] + dh / 100f * 30f * gate + 360f) % 360f   // 색조 ±100 = 최대 30도 이동
+        val s = (hsl[1] * (1f + ds / 100f * gate)).coerceIn(0f, 1f) // 채도 -100 = 무채색, +100 = 2배
+        val l = (hsl[2] + dl / 100f * 0.30f * (1f - abs(2f * hsl[2] - 1f)) * gate).coerceIn(0f, 1f) // 광도: 중간 밝기에서 크게, 양끝에서 작게
+        hslToRgb(h, s, l, c)
+    }
+
+    /**
+     * 색 보정: 밝기(L)로 어두운/중간/밝은 영역 가중치를 부드럽게 나누고(합이 1), 영역마다 고른 색조·채도의 색을 그만큼 입힌다.
+     * 균형은 어두운/밝은 경계를 옮기고, 혼합은 영역 사이 섞이는 폭을 정한다. 입히는 색은 밝기를 거의 바꾸지 않게 (색 - 색의 밝기)만큼 더한다.
+     */
+    private fun colorGrade(g: ColorGrade, c: FloatArray) {
+        val l = luma(c[0], c[1], c[2])
+        val bal = g.balance / 100f
+        val w = 0.04f + 0.26f * (g.blending / 100f)
+        val p1 = 0.33f - 0.20f * bal
+        val p2 = 0.67f - 0.20f * bal
+        val sW = 1f - smooth(p1 - w, p1 + w, l)
+        val hW = smooth(p2 - w, p2 + w, l)
+        val mW = maxOf(0f, 1f - sW - hW)
+        val tint = FloatArray(3)
+        for (z in 0..2) {
+            val zone = when (z) { 0 -> g.shadows; 1 -> g.mids; else -> g.highlights }
+            val weight = when (z) { 0 -> sW; 1 -> mW; else -> hW }
+            if (weight <= 0f || (zone.sat == 0f && zone.lum == 0f)) continue
+            hslToRgb(zone.hue, 1f, 0.5f, tint)
+            val tl = luma(tint[0], tint[1], tint[2])
+            val amount = zone.sat / 100f * 0.40f * weight
+            val dl = zone.lum / 100f * 0.25f * weight
+            for (k in 0..2) c[k] = (c[k] + (tint[k] - tl) * amount + dl).coerceIn(0f, 1f)
+        }
+    }
+
+    /** h는 0~360도, s·l은 0~1 */
+    private fun rgbToHsl(r: Float, g: Float, b: Float, out: FloatArray) {
+        val mx = maxOf(r, g, b); val mn = minOf(r, g, b)
+        val l = (mx + mn) / 2f
+        val d = mx - mn
+        var h = 0f
+        var s = 0f
+        if (d > 1e-6f) {
+            s = d / (1f - abs(2f * l - 1f)).coerceAtLeast(1e-6f)
+            h = when (mx) {
+                r -> ((g - b) / d) % 6f
+                g -> (b - r) / d + 2f
+                else -> (r - g) / d + 4f
+            } * 60f
+            if (h < 0f) h += 360f
+        }
+        out[0] = h; out[1] = s.coerceIn(0f, 1f); out[2] = l
+    }
+
+    private fun hslToRgb(h: Float, s: Float, l: Float, out: FloatArray) {
+        val c = (1f - abs(2f * l - 1f)) * s
+        val hp = (((h % 360f) + 360f) % 360f) / 60f
+        val x = c * (1f - abs(hp % 2f - 1f))
+        var r = 0f; var g = 0f; var b = 0f
+        when (hp.toInt()) {
+            0 -> { r = c; g = x }
+            1 -> { r = x; g = c }
+            2 -> { g = c; b = x }
+            3 -> { g = x; b = c }
+            4 -> { r = x; b = c }
+            else -> { r = c; b = x }
+        }
+        val m = l - c / 2f
+        out[0] = r + m; out[1] = g + m; out[2] = b + m
     }
 
     /** base 필름 LUT(없으면 보정 없는 원본)에 보정을 얹어 새 LUT로 굽는다. R이 가장 빨리 변하는 .cube 순서 */

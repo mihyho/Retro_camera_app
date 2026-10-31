@@ -77,7 +77,7 @@ class MainActivity : ComponentActivity() {
         controller.onPickPhoto = { pickLauncher.launch("image/*") }
         controller.onStrip = { renderer.setStrip(it) }
         controller.onPreviewRect = { renderer.setPreview(it) }
-        controller.onLiveFilm = { f -> renderer.setLut(controller.lutFor(f)); renderer.setClarity(f.clarity); renderer.setTexture(f.texture) }
+        controller.onLiveFilm = { f -> renderer.setLut(controller.lutFor(f)); renderer.setTexture(f.texture); renderer.setLocalContrast(f.localContrast) }
         controller.onZoomReset = { zoomTarget = 1f; camera?.cameraControl?.setZoomRatio(1f) }
         controller.onRequestPermission = {
             if (controller.perm == AppController.Perm.DENIED && !shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)) {
@@ -93,13 +93,13 @@ class MainActivity : ComponentActivity() {
             // 필름(모드)이 바뀌면 프리뷰 LUT도 교체
             LaunchedEffect(controller.currentFilm) {
                 renderer.setLut(controller.lutFor(controller.currentFilm))
-                renderer.setClarity(controller.currentFilm.clarity)
                 renderer.setTexture(controller.currentFilm.texture)
+                renderer.setLocalContrast(controller.currentFilm.localContrast)
             }
             // 모든 필름의 LUT를 미리 올린다: 필름 그리드와 하단 필름 스트립의 실시간 칩이 같이 쓴다(LUT 읽기는 백그라운드에서).
             // 필름을 새로 만들면 다시 올린다
             LaunchedEffect(controller.state.customFilms) {
-                val tiles = withContext(Dispatchers.Default) { Film.entries.map { LutRenderer.GridTile(controller.lutFor(it), it.clarity, it.texture) } }
+                val tiles = withContext(Dispatchers.Default) { Film.entries.map { LutRenderer.GridTile(controller.lutFor(it), it.texture, it.localContrast) } }
                 renderer.setTiles(tiles)
             }
             // 필름 그리드에는 지우지 않은 필름만 보인다
@@ -380,10 +380,10 @@ class MainActivity : ComponentActivity() {
                     image.close()
                 }
                 worker.execute {
-                    val result = runCatching { PhotoPipeline.process(applicationContext, bytes, rotation, lut, mode, film, grainOn, stampText, place?.first, place?.second) }
+                    val result = runCatching { PhotoPipeline.process(applicationContext, bytes, rotation, lut, mode, film, grainOn, stampText, place?.first, place?.second, s.grainAmount, s.grainSize) }
                     runOnUiThread {
                         if (mode == Mode.FILM) inFlightFilm--
-                        result.onSuccess { controller.onPhotoSaved(it, mode, film, rollStart, place?.first, place?.second) }
+                        result.onSuccess { controller.onPhotoSaved(it, mode, film, rollStart, place?.first, place?.second, if (grainOn) s.grainAmount else 0f, s.grainSize) }
                         result.onFailure {
                             Log.e("RetroCamera", "저장 실패", it)
                             controller.showToast("저장 실패: ${it.message}")

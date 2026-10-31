@@ -29,15 +29,8 @@ class LutRenderer(
 
     @Volatile private var pendingRequest: SurfaceRequest? = null
     @Volatile private var pendingLut: CubeLut? = null
-    @Volatile private var clarity = 0f
     private var lut: CubeLut = initialLut
     private var lutUploaded = false
-
-    /** 필름의 명료도(국소 대비, 음수면 부드럽게). 필름을 바꿀 때 함께 바꾼다 */
-    fun setClarity(value: Float) {
-        clarity = value
-        glView.requestRender()
-    }
 
     /** 필름 교체: 다음 프레임에 GL 스레드에서 3D 텍스처를 새 LUT로 다시 올린다 */
     fun setLut(newLut: CubeLut) {
@@ -45,12 +38,19 @@ class LutRenderer(
         glView.requestRender()
     }
     /** 필름 그리드: 같은 실시간 영상을 필름 수만큼 타일로 나눠 각자의 LUT로 그린다. null이면 한 화면 모드 */
-    class GridTile(val lut: CubeLut, val clarity: Float, val texture: Float = 0f)
+    class GridTile(val lut: CubeLut, val texture: Float = 0f, val localContrast: Float = 0f)
 
     /** 텍스처(미세한 질감 강조). 필름을 바꿀 때 함께 바꾼다 */
     @Volatile private var texture = 0f
     fun setTexture(value: Float) {
         texture = value
+        glView.requestRender()
+    }
+
+    /** 명료도(국부 대비). 필름을 바꿀 때 함께 바꾼다 */
+    @Volatile private var localContrast = 0f
+    fun setLocalContrast(value: Float) {
+        localContrast = value
         glView.requestRender()
     }
 
@@ -224,10 +224,10 @@ class LutRenderer(
                     val t = gridTiles[i]
                     val x = px + (n % gridCols) * tw
                     val y = py + ph - (n / gridCols + 1) * th
-                    drawTile(x, y, tw, th, gridTex[i], t.lut.size, t.clarity, true, texture = t.texture)
+                    drawTile(x, y, tw, th, gridTex[i], t.lut.size, true, texture = t.texture, localContrast = t.localContrast)
                 }
             } else {
-                drawTile(px, py, pw, ph, lutTex, lut.size, clarity, lutEnabled, 1f, (pr?.getOrNull(4) ?: 0).toFloat(), texture = texture)
+                drawTile(px, py, pw, ph, lutTex, lut.size, lutEnabled, 1f, (pr?.getOrNull(4) ?: 0).toFloat(), texture = texture, localContrast = localContrast)
             }
         }
 
@@ -248,8 +248,8 @@ class LutRenderer(
                 val x = sr[o].toInt()
                 if (s < 2 || x + s < 0 || x > viewW) continue
                 drawTile(
-                    x, viewH - (sr[o + 1].toInt() + s), s, s, gridTex[i], gridTiles[i].lut.size, gridTiles[i].clarity, true, sr[o + 3], s * 0.29f,
-                    sr[o + 4], sr[o + 5], sr[o + 6], sr[o + 7], gridTiles[i].texture,
+                    x, viewH - (sr[o + 1].toInt() + s), s, s, gridTex[i], gridTiles[i].lut.size, true, sr[o + 3], s * 0.29f,
+                    sr[o + 4], sr[o + 5], sr[o + 6], sr[o + 7], gridTiles[i].texture, gridTiles[i].localContrast,
                 )
             }
             GLES30.glDisable(GLES30.GL_SCISSOR_TEST)
@@ -257,8 +257,8 @@ class LutRenderer(
     }
 
     /** 뷰포트 한 칸에 영상을 중앙 크롭으로 그린다. round>0이면 모서리를 둥글게(바깥은 그리지 않음), alpha<1이면 바탕색 쪽으로 흐리게 */
-    private fun drawTile(x: Int, y: Int, w: Int, h: Int, tex: Int, lutSize: Int, clarity: Float, lutOn: Boolean, alpha: Float = 1f, round: Float = 0f,
-        ringW: Float = 0f, ringR: Float = 0f, ringG: Float = 0f, ringB: Float = 0f, texture: Float = 0f,
+    private fun drawTile(x: Int, y: Int, w: Int, h: Int, tex: Int, lutSize: Int, lutOn: Boolean, alpha: Float = 1f, round: Float = 0f,
+        ringW: Float = 0f, ringR: Float = 0f, ringG: Float = 0f, ringB: Float = 0f, texture: Float = 0f, localContrast: Float = 0f,
     ) {
         GLES30.glViewport(x, y, w, h)
         // 화면 uv(0..1) -> 중앙 크롭 -> SurfaceTexture 변환.
@@ -294,8 +294,10 @@ class LutRenderer(
         GLES30.glUniform2f(GLES30.glGetUniformLocation(program, "uHalf"), w / 2f, h / 2f)
         GLES30.glUniform3f(GLES30.glGetUniformLocation(program, "uBg"), BG_R, BG_G, BG_B)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uTexture"), texture)
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uClarity"), clarity)
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uClaritySigma"), Clarity.sigma(bufferW))
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uLocal"), localContrast)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uLocalR"), bufferW * 0.012f) // 명료도의 넓은 흐림 반경(px): 폭의 1.2%
+        // 촬영본과 같은 크기 규칙: 텍스처용 작은 흐림 반경(px)은 PhotoPipeline.detailRadius, 명료도용 넓은 흐림은 FilmDetail.largeRadius
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uDetailR"), PhotoPipeline.detailRadius(bufferW).toFloat())
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, camTex)
         GLES30.glUniform1i(GLES30.glGetUniformLocation(program, "uCam"), 0)
@@ -363,7 +365,7 @@ void main() {
 }"""
 
         // .cube 격자점은 텍셀 중심에 대응하므로 반 텍셀 보정을 해야 33점이 정확히 맞는다.
-        // 색감은 흐린 이미지(상하좌우 5점 평균)에 입히고, 세부/노이즈는 원본 크기를 넘지 못하게 제한한다
+        // 색감은 흐린 이미지(상하좌우 5점 평균, 간격은 촬영본의 detailRadius)에 입히고, 세부/노이즈는 원본 크기를 넘지 못하게 제한한다
         // (촬영본의 LutApplier.applyDetailSafe 와 같은 방식 -> 색감을 입혀도 노이즈가 늘지 않는다).
         const val FRAGMENT = """#version 300 es
 #extension GL_OES_EGL_image_external_essl3 : require
@@ -374,9 +376,10 @@ uniform sampler3D uLut;
 uniform float uLutSize;
 uniform float uLutOn;
 uniform vec2 uTexel;
-uniform float uClarity;
-uniform float uClaritySigma;
+uniform float uDetailR;
 uniform float uTexture;
+uniform float uLocal;
+uniform float uLocalR;
 uniform float uAlpha;
 uniform float uRound;
 uniform float uRingW;
@@ -398,31 +401,46 @@ void main() {
         if (sd > 0.0) discard;
     }
     vec3 c0 = texture(uCam, vUv).rgb;
-    vec2 o = uTexel * 1.5;
+    vec2 o = uTexel * uDetailR;
     // 세부 분리용 흐림(색감을 입힐 때 노이즈가 늘지 않게)은 원본 샘플로 만든다
     vec3 base = (c0
         + texture(uCam, vUv + vec2(o.x, 0.0)).rgb + texture(uCam, vUv - vec2(o.x, 0.0)).rgb
         + texture(uCam, vUv + vec2(0.0, o.y)).rgb + texture(uCam, vUv - vec2(0.0, o.y)).rgb) / 5.0;
-    // 명료도: 가우시안 흐림을 원본에 섞되 뚜렷한 경계는 보호한다(모든 채널, 모든 밝기). 1-2-1 가중 3x3 샘플을 sigma/0.7071 간격으로 두면
-    // 표준편차가 sigma인 가우시안에 가깝다(촬영본 Clarity.kt와 같은 수식: 결과 = 원본 + (흐림 - 원본) * (-clarity))
     vec3 c = c0;
-    if (uClarity != 0.0) {
-        vec2 s = uTexel * (uClaritySigma / 0.7071);
-        vec3 blur = (
-            4.0 * c0
-            + 2.0 * (texture(uCam, vUv + vec2(s.x, 0.0)).rgb + texture(uCam, vUv - vec2(s.x, 0.0)).rgb
-                   + texture(uCam, vUv + vec2(0.0, s.y)).rgb + texture(uCam, vUv - vec2(0.0, s.y)).rgb)
-            + texture(uCam, vUv + vec2(s.x, s.y)).rgb + texture(uCam, vUv + vec2(-s.x, s.y)).rgb
-            + texture(uCam, vUv + vec2(s.x, -s.y)).rgb + texture(uCam, vUv + vec2(-s.x, -s.y)).rgb
-        ) / 16.0;
-        // 경계 보호: 원본과 흐림의 밝기 차가 크면(뚜렷한 경계) 흐림을 섞지 않는다(촬영본 Clarity.kt 와 같은 수식)
-        float dy = abs(dot(c0 - blur, vec3(0.299, 0.587, 0.114)));
-        float e = clamp((dy - 0.03) / (0.14 - 0.03), 0.0, 1.0);
-        float w = 1.0 - e * e * (3.0 - 2.0 * e);
-        c = clamp(c0 + (blur - c0) * (-uClarity) * w, 0.0, 1.0);
+    // 텍스처와 명료도(촬영본 FilmDetail.kt 와 같은 수식). 둘 다 원본의 밝기 차이만 세 채널에 같은 양으로 더해 색이 틀어지지 않고,
+    // 각자 원본에서 계산해 더하므로 서로 영향을 주지 않는다.
+    vec3 lw = vec3(0.299, 0.587, 0.114);
+    float lc0 = dot(c0, lw);
+    float add = 0.0;
+    if (uTexture != 0.0) {
+        float d = lc0 - dot(base, lw);
+        float ad = abs(d);
+        float g = uTexture > 0.0
+            ? uTexture * 1.6 * smoothstep(0.008, 0.035, ad) * (1.0 - smoothstep(0.12, 0.35, ad))
+            : uTexture * (1.0 - smoothstep(0.08, 0.30, ad));
+        add += d * g;
     }
-    // 텍스처: 원본과 아주 작게 흐린 것의 차이를 더하거나 뺀다(촬영본 Texture.kt 와 같은 수식)
-    if (uTexture != 0.0) c = clamp(c + (c0 - base) * uTexture, 0.0, 1.0);
+    if (uLocal != 0.0) {
+        // 넓게 흐린 것: 두 겹의 고리(반경 uLocalR의 절반과 전부) 8방향 샘플의 평균
+        vec2 s1 = uTexel * uLocalR * 0.5;
+        vec2 s2 = uTexel * uLocalR;
+        vec3 w = c0;
+        w += texture(uCam, vUv + vec2(s1.x, 0.0)).rgb + texture(uCam, vUv - vec2(s1.x, 0.0)).rgb
+           + texture(uCam, vUv + vec2(0.0, s1.y)).rgb + texture(uCam, vUv - vec2(0.0, s1.y)).rgb
+           + texture(uCam, vUv + s1 * 0.7071).rgb + texture(uCam, vUv - s1 * 0.7071).rgb
+           + texture(uCam, vUv + vec2(s1.x, -s1.y) * 0.7071).rgb + texture(uCam, vUv + vec2(-s1.x, s1.y) * 0.7071).rgb;
+        w += texture(uCam, vUv + vec2(s2.x, 0.0)).rgb + texture(uCam, vUv - vec2(s2.x, 0.0)).rgb
+           + texture(uCam, vUv + vec2(0.0, s2.y)).rgb + texture(uCam, vUv - vec2(0.0, s2.y)).rgb
+           + texture(uCam, vUv + s2 * 0.7071).rgb + texture(uCam, vUv - s2 * 0.7071).rgb
+           + texture(uCam, vUv + vec2(s2.x, -s2.y) * 0.7071).rgb + texture(uCam, vUv + vec2(-s2.x, s2.y) * 0.7071).rgb;
+        w /= 17.0;
+        float d = lc0 - dot(w, lw);
+        float mid = 4.0 * lc0 * (1.0 - lc0);
+        float edge = 1.0 - 0.85 * smoothstep(0.08, 0.30, abs(d));
+        float x = d * (uLocal > 0.0 ? uLocal * 1.2 : uLocal) * mid * edge;
+        add += x / (1.0 + abs(x) / 0.20);
+    }
+    if (add != 0.0) c = clamp(c + vec3(add), 0.0, 1.0);
     vec3 gb = grade(base);
     vec3 dIn = c - base;
     vec3 graded = gb + clamp(grade(c) - gb, -abs(dIn), abs(dIn));

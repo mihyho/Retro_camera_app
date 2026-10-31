@@ -9,17 +9,47 @@ data class FilmAdjust(
     val whites: Float = 0f, val blacks: Float = 0f,
     val temperature: Float = 0f, val tint: Float = 0f, val vibrance: Float = 0f, val saturation: Float = 0f,
     val texture: Float = 0f, val clarity: Float = 0f, val dehaze: Float = 0f,
+    val mix: ColorMix = ColorMix(), val grade: ColorGrade = ColorGrade(),
 ) {
     val isNeutral get() = this == FilmAdjust()
 
-    /** 명료도 보정(-100~+100)을 Film.clarity 단위로: +100 = 선명하게 0.8, -100 = 흐리게 0.8 */
-    val clarityAmount get() = clarity / 100f * 0.8f
+    /** 명료도 보정(-100~+100)을 -1..+1로. 필름의 국부 대비(Film.localContrast)가 된다 */
+    val clarityAmount get() = clarity / 100f
 
-    /** 텍스처 보정(-100~+100)을 Film.texture 단위로 */
-    val textureAmount get() = texture / 100f * 0.6f
+    /** 텍스처 보정(-100~+100)을 -1..+1로. 필름의 텍스처(Film.texture)가 된다 */
+    val textureAmount get() = texture / 100f
 }
 
-/** 사용자가 만든 필름. base는 "기본 필름 불러오기"로 고른 출발점(없으면 보정 없는 원본에서 시작) */
+/**
+ * 색상 혼합(HSL): 빨강·주황·노랑·초록·청록·파랑·자주·보라 8가지 색 계열마다 색조/채도/광도를 -100~+100으로 조절한다(0 = 그대로).
+ * 각 리스트는 8개이고 [COLORS] 순서다.
+ */
+data class ColorMix(
+    val hue: List<Float> = List(COUNT) { 0f },
+    val sat: List<Float> = List(COUNT) { 0f },
+    val lum: List<Float> = List(COUNT) { 0f },
+) {
+    companion object {
+        const val COUNT = 8
+        val NAMES = listOf("빨강", "주황", "노랑", "초록", "청록", "파랑", "자주", "보라")
+        /** 각 색 계열의 중심 색조(도). 이 사이의 색은 이웃한 두 계열에 부드럽게 나뉜다 */
+        val CENTERS = floatArrayOf(0f, 30f, 60f, 120f, 180f, 240f, 275f, 320f)
+    }
+}
+
+/** 색 보정의 한 영역(어두운/중간/밝은): 색조(0~360도), 채도(0~100), 광도(-100~+100) */
+data class GradeZone(val hue: Float = 0f, val sat: Float = 0f, val lum: Float = 0f)
+
+/**
+ * 색 보정(3-way 컬러 휠): 밝기에 따라 어두운/중간/밝은 영역에 색을 입힌다.
+ * 혼합(0~100, 기본 50)은 영역 사이가 얼마나 부드럽게 섞이는지, 균형(-100~+100)은 어두운 영역과 밝은 영역을 가르는 경계를 어디로 둘지다.
+ */
+data class ColorGrade(
+    val shadows: GradeZone = GradeZone(), val mids: GradeZone = GradeZone(), val highlights: GradeZone = GradeZone(),
+    val blending: Float = 50f, val balance: Float = 0f,
+)
+
+/** 사용자가 만든 필름. base는 편집의 출발점으로 쓸 다른 필름(지금 화면에서는 항상 null: 보정 없는 원본에서 시작) */
 data class CustomFilm(val key: String, val name: String, val accent: Long, val baseKey: String?, val adjust: FilmAdjust)
 
 /**
@@ -36,17 +66,20 @@ class Film(
     val soft: Long,
     val ink: Long,
     val description: String,
-    /** 명료도: 음수면 가우시안 흐림 효과를 그만큼 섞는다(뚜렷한 경계는 보호), 양수면 선명하게. -0.40 = 질감/면에 흐림 40% 혼합(약간) */
-    val clarity: Float = -0.40f,
     /** 필름 그레인 세기(0~1 진폭 기준). 0.02 = 약하게. 0이면 없음 */
     val grain: Float = 0.020f,
-    /** 텍스처: 미세한 질감 강조(양수)/완화(음수). 0이면 없음 */
-    val texture: Float = 0f,
+    /** 텍스처: 미세한 질감 강조(양수)/완화(음수), -1..+1(FilmDetail). 기본 필름은 예전 "부드러운 흐림"을 같은 알고리즘의 -0.45로 옮겨 쓴다 */
+    val texture: Float = -0.45f,
+    /** 명료도(국부 대비): 중간톤의 윤곽·입체감 강조(양수)/완화(음수), -1..+1. 0이면 없음(FilmDetail) */
+    val localContrast: Float = 0f,
     /** 사용자가 만든 필름이면 그 정의(LUT를 만들 때 쓴다) */
     val custom: CustomFilm? = null,
 ) {
     /** assets/luts 아래의 .cube 파일 이름(기본 제공 필름만) */
     val lutAsset: String get() = "luts/$key.cube"
+
+    /** 사용자가 만든 필름(기본 필름으로 넣은 것은 제외): 보관함에서 지울 수 있다 */
+    val isUserMade: Boolean get() = custom != null && this !in builtIn
 
     // 같은 키면 같은 필름: 사용자가 필름을 더 만들면 목록이 다시 만들어지지만, 이미 고른 필름과 계속 같게 본다
     override fun equals(other: Any?) = other is Film && other.key == key
@@ -70,9 +103,45 @@ class Film(
         val CINE = Film("cine500", "Cine500", "Cine500", 500, 0xFF2F8F99, 0xFFE0F0F1, 0xFF1B5359, "청록빛 그림자, 영화 같은 대비")
         val FADED = Film("faded100", "Faded100", "Faded100", 100, 0xFFA8957A, 0xFFF3EDE3, 0xFF5E5039, "바랜 90년대 사진, 들뜬 검정", grain = 0.030f)
         val NIGHT = Film("night1600", "Night1600", "Night1600", 1600, 0xFFC0392B, 0xFFF8E3E0, 0xFF6E1F17, "붉게 쏠린 밤 색, 거친 입자", grain = 0.045f)
+
+        // 필름 만들기로 만들어 기본 필름으로 넣은 필름. assets에 .cube 파일이 없고, 보정값(FilmAdjust)에서 LUT를 구워 쓴다
+        val MONOCHROME = fromCustom(
+            CustomFilm(
+                "monochrome", "Monochrome", 0xFFF5F1E8, null,
+                FilmAdjust(
+                    exposure = -0.86f, contrast = 19f, highlights = -24f, shadows = -54f, whites = 41f, blacks = -20f,
+                    vibrance = -100f, saturation = -100f, texture = 23f, clarity = 28f, dehaze = 11f,
+                ),
+            ),
+            null, "흑백, 짙은 그림자와 또렷한 질감",
+        )
+        val DREAMING = fromCustom(
+            CustomFilm(
+                "dreaming", "Dreaming", 0xFFD971B8, null,
+                FilmAdjust(
+                    exposure = 0.75f, contrast = -9f, highlights = -27f, shadows = 14f, whites = 17f, blacks = -37f,
+                    temperature = 11f, tint = 6f, vibrance = 12f, saturation = 8f, texture = 9f, clarity = -66f, dehaze = -5f,
+                    mix = ColorMix(
+                        hue = listOf(0f, 0f, 0f, 0f, -14f, -10f, 0f, 0f),
+                        sat = listOf(0f, 0f, 0f, 0f, 10f, 20f, 0f, 0f),
+                        lum = listOf(0f, 0f, 0f, 0f, 9f, 14f, 0f, 0f),
+                    ),
+                    grade = ColorGrade(
+                        shadows = GradeZone(175.13477f, 10.953357f, 0f),
+                        highlights = GradeZone(7.468963f, 15.195896f, 0f),
+                    ),
+                ),
+            ),
+            null, "부드럽고 몽환적인 색, 은은한 청록과 살구빛",
+        )
+
         val builtIn: List<Film> = listOf(
             TUNGSTEN, GOLD, FOREST, EKTAR, KGOLD, PORTRA, PROVIA, AUTUMN, CHROME, LEICA_STD, LEICA_VIV, FPROVIA, KCHROME, CINE, FADED, NIGHT,
+            MONOCHROME, DREAMING,
         )
+
+        /** 예전에 사용자 필름으로 만들었다가 기본 필름이 된 것: 옛 키 → 새 키. 옛 키로 저장된 사진·롤은 새 필름으로 이어진다 */
+        val MIGRATED: Map<String, String> = mapOf("custom_1793413564303" to "monochrome", "custom_1793413677878" to "dreaming")
 
         @Volatile private var all: List<Film> = builtIn
 
@@ -86,15 +155,15 @@ class Film(
             all = out
         }
 
-        fun fromKey(key: String): Film = all.first { it.key == key }
+        fun fromKey(key: String): Film = all.firstOrNull { it.key == key } ?: all.first { it.key == MIGRATED[key] }
 
-        private fun fromCustom(d: CustomFilm, base: Film?): Film {
+        private fun fromCustom(d: CustomFilm, base: Film?, description: String? = null): Film {
             val tint = Integer.toUnsignedLong(d.accent.toInt()) and 0xFFFFFFFFL
             return Film(
-                d.key, d.name, d.name, 0, tint, tint, tint, if (base != null) "${base.displayName}에서 만든 필름" else "직접 만든 필름",
-                clarity = ((base?.clarity ?: 0f) + d.adjust.clarityAmount).coerceIn(-1f, 1f),
+                d.key, d.name, d.name, 0, tint, tint, tint, description ?: if (base != null) "${base.displayName}에서 만든 필름" else "직접 만든 필름",
                 grain = base?.grain ?: 0.020f,
                 texture = ((base?.texture ?: 0f) + d.adjust.textureAmount).coerceIn(-1f, 1f),
+                localContrast = ((base?.localContrast ?: 0f) + d.adjust.clarityAmount).coerceIn(-1f, 1f),
                 custom = d,
             )
         }
@@ -104,7 +173,9 @@ class Film(
 enum class Mode { FILM, SINGLE }
 
 /** file은 앱 전용 저장소 기준 상대 경로, uri는 갤러리(MediaStore)로 내보낸 뒤의 주소(내보내기 전에는 null) */
-data class Shot(val film: Film, val file: String, val takenAt: Long, val uri: String? = null, val lat: Double? = null, val lon: Double? = null)
+data class Shot(val film: Film, val file: String, val takenAt: Long, val uri: String? = null, val lat: Double? = null, val lon: Double? = null,
+    /** 찍을 때의 그레인 양(필름 고유 세기에 곱한 배율, 0이면 그레인 없음)과 알갱이 크기 배율. 옛 사진은 null */
+    val grainAmount: Float? = null, val grainSize: Float? = null)
 
 /** 필름 모드에서 진행 중인 롤. 이게 있으면 필름 잠금이 걸린다. */
 data class Roll(val film: Film, val total: Int, val shots: List<Shot>, val start: Long) {
@@ -133,12 +204,17 @@ data class AppState(
     val volumeShutter: Boolean = true,
     /** 촬영본에 필름 그레인을 넣을지(기본 켬) */
     val grainOn: Boolean = true,
+    /** 그레인 양(필름 고유 값에 곱하는 배율, 0..2) / 알갱이 크기 배율(0.5..4) / 거칠기(0..1) */
+    val grainAmount: Float = 1f,
+    val grainSize: Float = 1f,
     /** 찍을 때 위치를 사진(EXIF)과 사진 뒷면에 기록할지(기본 켬, 위치 권한이 있어야 실제로 기록된다) */
     val recordLocation: Boolean = true,
     /** 사용자가 만든 필름(만든 순서) */
     val customFilms: List<CustomFilm> = emptyList(),
-    /** 필름 메뉴에서 지운 필름의 키. 이미 찍은 사진이 가리키는 필름은 목록에서만 숨기고 정의는 남긴다 */
+    /** 필름 메뉴에서 보관한 필름의 키(보관함에 들어간다). 이미 찍은 사진이 가리키는 필름은 목록에서만 숨기고 정의는 남긴다 */
     val hiddenFilms: Set<String> = emptySet(),
+    /** 필름 보관함에서 완전히 지운 내 필름의 키. 그 필름으로 찍은 사진이 가리키므로 정의는 남기고 어디에도 보이지 않게만 한다 */
+    val purgedFilms: Set<String> = emptySet(),
     /** 필름 메뉴의 순서(지운 필름 포함 전체 키). 비어 있거나 모르는 키는 기본 순서를 따른다 */
     val filmOrder: List<String> = emptyList(),
 )

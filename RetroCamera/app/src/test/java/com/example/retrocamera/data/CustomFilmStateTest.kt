@@ -13,7 +13,11 @@ class CustomFilmStateTest {
 
     private val def = CustomFilm(
         "custom_1", "나의 여름", 0xFFE8B84AL, null,
-        FilmAdjust(exposure = .35f, contrast = 12f, highlights = -30f, temperature = 18f, saturation = 8f, texture = 20f, clarity = -15f, dehaze = 10f),
+        FilmAdjust(
+            exposure = .35f, contrast = 12f, highlights = -30f, temperature = 18f, saturation = 8f, texture = 20f, clarity = -15f, dehaze = 10f,
+            mix = ColorMix(hue = List(8) { if (it == 3) 25f else 0f }, sat = List(8) { if (it == 5) -40f else 0f }, lum = List(8) { if (it == 0) 15f else 0f }),
+            grade = ColorGrade(shadows = GradeZone(210f, 40f, 10f), mids = GradeZone(30f, 12f, 0f), highlights = GradeZone(45f, 25f, -5f), blending = 65f, balance = -20f),
+        ),
     )
 
     @Test
@@ -23,7 +27,8 @@ class CustomFilmStateTest {
         val shot = Shot(custom, "content://x/1", 1000L, "content://x/1", 37.5, 126.9)
         val state = AppState(
             mode = Mode.SINGLE, singleFilm = custom, singleShots = listOf(shot),
-            customFilms = listOf(def), hiddenFilms = setOf("gold", "forest"),
+            customFilms = listOf(def), hiddenFilms = setOf("gold", "forest", "custom_9"), purgedFilms = setOf("custom_9"),
+            filmOrder = listOf("forest", "gold", "custom_1"),
         )
         val json = StateStore.toJson(state).toString()
 
@@ -31,7 +36,9 @@ class CustomFilmStateTest {
         Film.setCustom(emptyList())
         val back = StateStore.fromJson(JSONObject(json))
         assertEquals(listOf(def), back.customFilms)
-        assertEquals(setOf("gold", "forest"), back.hiddenFilms)
+        assertEquals(setOf("gold", "forest", "custom_9"), back.hiddenFilms)
+        assertEquals(setOf("custom_9"), back.purgedFilms)
+        assertEquals(listOf("forest", "gold", "custom_1"), back.filmOrder)
         assertEquals("custom_1", back.singleFilm.key)
         assertEquals("custom_1", back.singleShots.single().film.key)
         assertEquals(37.5, back.singleShots.single().lat!!, 1e-9)
@@ -53,5 +60,21 @@ class CustomFilmStateTest {
         val back = StateStore.fromJson(JSONObject(StateStore.toJson(AppState(customFilms = listOf(def))).toString())).customFilms.single().adjust
         assertEquals(a, back)
         assertFalse(back.isNeutral)
+    }
+
+    @Test
+    fun monochromeAndDreamingAreBuiltInAndOldUserCopiesMigrateWithoutDuplicates() {
+        assertTrue(Film.builtIn.containsAll(listOf(Film.MONOCHROME, Film.DREAMING)))
+        assertFalse(Film.MONOCHROME.isUserMade)
+        // 옛 사용자 필름 키로 저장된 상태를 읽으면 기본 필름으로 이어지고, 같은 이름의 필름이 둘이 되지 않는다
+        val old = CustomFilm("custom_1793413564303", "Monochrome", 0xFFF5F1E8L, null, FilmAdjust())
+        Film.setCustom(listOf(old))
+        val json = StateStore.toJson(AppState(mode = Mode.SINGLE, singleFilm = Film.fromKey("custom_1793413564303"), customFilms = listOf(old)))
+        Film.setCustom(emptyList())
+        val back = StateStore.fromJson(JSONObject(json.toString()))
+        assertTrue(back.customFilms.isEmpty())
+        assertEquals("monochrome", back.singleFilm.key)
+        assertEquals(1, Film.entries.count { it.displayName == "Monochrome" })
+        assertEquals("monochrome", Film.fromKey("custom_1793413564303").key)
     }
 }

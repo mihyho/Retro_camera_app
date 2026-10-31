@@ -12,16 +12,17 @@ object Grain {
     const val DEFAULT_STRENGTH = 0.035f
 
     /** 한 알갱이가 차지하는 픽셀 변 길이. 폭 1600px당 1px 수준 */
-    fun cellSize(width: Int): Int = maxOf(1, width / 1600)
+    fun cellSize(width: Int, size: Float = 1f): Int = maxOf(1, (width / 1600f * size).toInt())
 
     /**
      * px는 한 줄이 width인 ARGB 이미지의 일부(startRow 줄부터)이며, [from, to) 구간을 제자리에서 변환한다.
+     * size: 알갱이 크기 배율(1 = 기본).
      */
     fun applyArgb(
         px: IntArray, from: Int, to: Int, width: Int, startRow: Int,
-        strength: Float = DEFAULT_STRENGTH, seed: Int = 0x5EED,
+        strength: Float = DEFAULT_STRENGTH, seed: Int = 0x5EED, size: Float = 1f,
     ) {
-        val cell = cellSize(width)
+        val cell = cellSize(width, size)
         for (k in from until to) {
             val x = k % width
             val y = startRow + k / width
@@ -47,6 +48,7 @@ object Grain {
                 (clamp(r + dr) shl 16) or (clamp(g + dg) shl 8) or clamp(b + db)
         }
     }
+
 
     /** -1..1, 평균 0인 균일 분포 해시 노이즈 */
     private fun noise(x: Int, y: Int, seed: Int): Float {

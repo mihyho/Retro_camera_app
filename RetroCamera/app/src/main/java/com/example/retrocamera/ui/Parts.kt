@@ -63,7 +63,7 @@ fun Thumb(shot: Shot, px: Int, modifier: Modifier, scale: ContentScale = Content
         value = withContext(Dispatchers.IO) { ThumbLoader.load(context, shot, px) }
     }
     Box(modifier.background(Ds.Bg2)) {
-        bmp?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = scale) }
+        bmp?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = scale, filterQuality = androidx.compose.ui.graphics.FilterQuality.High) }
     }
 }
 
@@ -145,6 +145,19 @@ fun ValueRow(label: String, value: String, last: Boolean = false) = Row44(last) 
     Text(label, Ds.Ink, t17, Modifier.weight(1f))
     Text(value, Ds.Sub, t17)
 }
+
+/** 이름과 현재 값, 그 아래 슬라이더가 있는 행. 값은 lo..hi 칸 단위 */
+@Composable
+fun SliderRow(label: String, valueText: String, value: Int, lo: Int, hi: Int, last: Boolean = false, onChange: (Int) -> Unit) =
+    Row44(last) {
+        Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label, Ds.Ink, t17, Modifier.weight(1f))
+                Text(valueText, Ds.Sub, t17)
+            }
+            StepSlider(value, lo, hi, onChange)
+        }
+    }
 
 @Composable
 fun ActionRow(label: String, color: Color = Ds.AccentInk, last: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) =

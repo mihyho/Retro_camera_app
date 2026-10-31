@@ -24,7 +24,7 @@ object PhotoPipeline {
     private const val STRIP_ROWS = 256
     private const val JPEG_QUALITY = 95
 
-    fun process(context: Context, jpeg: ByteArray, rotationDegrees: Int, lut: CubeLut, mode: Mode, film: Film, grainOn: Boolean = true, stampText: String? = null, lat: Double? = null, lon: Double? = null): SavedPhoto {
+    fun process(context: Context, jpeg: ByteArray, rotationDegrees: Int, lut: CubeLut, mode: Mode, film: Film, grainOn: Boolean = true, stampText: String? = null, lat: Double? = null, lon: Double? = null, grainAmount: Float = 1f, grainSize: Float = 1f): SavedPhoto {
         val opts = BitmapFactory.Options().apply {
             inMutable = true
             inPreferredConfig = Bitmap.Config.ARGB_8888
@@ -33,8 +33,8 @@ object PhotoPipeline {
             ?: throw IllegalStateException("촬영본 디코딩 실패")
         val bmp = cropToFourFive(full, rotationDegrees)
 
-        // 필름의 룩: 색감(LUT) + 명료도 + 그레인. 명료도와 그레인 값은 필름마다 정해져 있다(Film.clarity, Film.grain)
-        applyLut(bmp, lut, film.clarity, if (grainOn) film.grain else 0f, film.texture)
+        // 필름의 룩: 색감(LUT) + 텍스처·명료도(모든 필름이 같은 FilmDetail) + 그레인. 값은 필름마다 정해져 있다(Film.texture, Film.localContrast, Film.grain)
+        applyLut(bmp, lut, if (grainOn) film.grain * grainAmount else 0f, film.texture, film.localContrast, grainSize)
 
         if (stampText != null) drawStamp(bmp, stampText, rotationDegrees)
 
@@ -128,13 +128,14 @@ object PhotoPipeline {
      * 제한해서 색감을 입히는 과정에서 노이즈가 늘지 않게 한다(그레인은 이 뒤에 의도해서 얹는다).
      * 큰 이미지를 통째로 IntArray로 만들지 않도록 띠(strip) 단위로 처리하되, 블러에 필요한 위아래 여백 행을 함께 읽는다.
      */
-    private fun applyLut(bmp: Bitmap, lut: CubeLut, clarity: Float, grain: Float, texture: Float = 0f) {
+    private fun applyLut(bmp: Bitmap, lut: CubeLut, grain: Float, texture: Float = 0f, localContrast: Float = 0f, grainSize: Float = 1f) {
         val w = bmp.width
         val h = bmp.height
         val r = detailRadius(w)
-        val rLarge = if (clarity != 0f) Clarity.boxRadius(w) else 0
-        val margin = maxOf(r, 2 * rLarge)           // 박스 블러 2회라 여백도 2배
+        val rLC = if (localContrast != 0f) FilmDetail.largeRadius(w) else 0 // 명료도(국부 대비)용 넓은 흐림
+        val margin = maxOf(r, 2 * rLC)  // 박스 블러 2회라 여백도 2배
         val block = IntArray(w * (STRIP_ROWS + 2 * margin))
+        var tail: IntArray? = null                     // 이전 띠의 "보정 전" 아래쪽 행들(이미 bmp에는 보정본이 써졌다)
         var y = 0
         while (y < h) {
             val rows = minOf(STRIP_ROWS, h - y)
@@ -142,8 +143,11 @@ object PhotoPipeline {
             val bottom = minOf(h, y + rows + margin)   // 블록의 끝 행(미포함)
             val blockRows = bottom - top
             bmp.getPixels(block, 0, w, 0, top, w, blockRows)
+            // 위쪽 여백은 보정된 행이 아니라 원본이어야 띠 경계에 줄이 생기지 않는다
+            tail?.let { System.arraycopy(it, 0, block, 0, (y - top) * w) }
+            tail = if (y + rows < h) block.copyOfRange((rows + y - top - margin) * w, (rows + y - top) * w) else null
             val base = BoxBlur.blurArgb(block, w, blockRows, r)           // 모두 변환 전 원본 블록에서 계산
-            val large = if (rLarge > 0) Clarity.blur(block, w, blockRows, rLarge) else base
+            val wide = if (rLC > 0) FilmDetail.blurLarge(block, w, blockRows, rLC) else null
             val from0 = (y - top) * w                  // 변환할 가운데 행들의 시작/끝 인덱스
             val to0 = from0 + rows * w
             val total = to0 - from0
@@ -152,10 +156,9 @@ object PhotoPipeline {
                 val from = from0 + c * chunk
                 val to = minOf(to0, from + chunk)
                 if (from < to) {
-                    if (rLarge > 0) Clarity.applyArgb(block, large, from, to, clarity)
-                    if (texture != 0f) Texture.applyArgb(block, base, from, to, texture)
+                    FilmDetail.applyArgb(block, base, wide, from, to, texture, localContrast)
                     LutApplier.applyDetailSafe(block, base, from, to, lut)
-                    if (grain > 0f) Grain.applyArgb(block, from, to, w, top, strength = grain)
+                    if (grain > 0f) Grain.applyArgb(block, from, to, w, top, strength = grain, size = grainSize)
                 }
             }
             bmp.setPixels(block, from0, w, 0, y, w, rows)

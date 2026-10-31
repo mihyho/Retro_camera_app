@@ -120,7 +120,7 @@ fun LibraryPage(c: AppController, onClose: () -> Unit) {
                                     onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); selected = if (picked) selected - shot else selected + shot },
                                 ),
                             ) {
-                                Thumb(shot, 240, Modifier.fillMaxSize())
+                                Thumb(shot, 480, Modifier.fillMaxSize())
                                 if (picked) Box(Modifier.fillMaxSize().background(Ds.Accent.copy(alpha = .28f)))
                                 if (selecting) Box(
                                     Modifier.align(Alignment.TopEnd).padding(6.dp).size(22.dp).clip(CircleShape)
@@ -201,7 +201,7 @@ fun DetailPage(c: AppController, v: Panel.Viewer) {
         ) {
             val ar = bmp?.let { it.width.toFloat() / it.height } ?: .8f
             Box(Modifier.aspectRatio(ar).graphicsLayer { rotationY = flip; cameraDistance = 14f * density }) {
-                if (flip <= 90f) bmp?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
+                if (flip <= 90f) bmp?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = androidx.compose.ui.graphics.FilterQuality.High) }
                 else PhotoBack(shot, Modifier.graphicsLayer { rotationY = 180f }) // 뒤집힌 면이 거울처럼 보이지 않게 다시 돌려 둔다
             }
         }
@@ -238,6 +238,17 @@ private fun PhotoBack(shot: Shot, modifier: Modifier) {
                 Text(if (f.iso > 0) "${f.displayName}  ISO ${f.iso}" else f.displayName, Ds.Ink, t17, Modifier.padding(start = 10.dp))
             }
             Text(f.description, Ds.Sub, t13, Modifier.padding(top = 4.dp))
+        }
+        BackField("그레인") {
+            val a = shot.grainAmount
+            Text(
+                when {
+                    a == null -> "기록 없음"
+                    a <= 0f -> "없음"
+                    else -> "양 ${Math.round(a * 100)}%  ·  크기 %.1f배".format(shot.grainSize ?: 1f)
+                },
+                if (a == null) Ds.Sub else Ds.Ink, t17,
+            )
         }
         BackField("촬영 위치") {
             val la = shot.lat; val lo = shot.lon
@@ -278,11 +289,15 @@ fun SettingsPage(c: AppController, onClose: () -> Unit) {
                 SwitchRow("격자", s.grid) { c.setGrid(it) }
                 SwitchRow("날짜 각인", s.stamp) { c.setStamp(it) }
                 SwitchRow("필름 그레인", s.grainOn) { c.setGrain(it) }
+                if (s.grainOn) {
+                    SliderRow("그레인 양", "${Math.round(s.grainAmount * 100)}%", Math.round(s.grainAmount * 10), 0, 20) { c.setGrainLook(amount = it / 10f) }
+                    SliderRow("그레인 크기", "%.1f배".format(s.grainSize), Math.round(s.grainSize * 2), 1, 8) { c.setGrainLook(size = it / 2f) }
+                }
                 SwitchRow("사진에 위치 기록", s.recordLocation) { c.setRecordLocation(it) }
                 SwitchRow("볼륨 버튼 촬영", s.volumeShutter, last = true) { c.setVolumeShutter(it) }
             }
             SectionNote(
-                "날짜 각인과 그레인은 저장되는 사진에도 똑같이 들어가요. 볼륨 버튼 촬영을 켜면 볼륨 키로 셔터를 눌러요. " +
+                "날짜 각인과 그레인은 저장되는 사진에도 똑같이 들어가요. 그레인 양은 필름마다 정해진 세기에 곱해지고, 크기는 알갱이 굵기를 정해요. 볼륨 버튼 촬영을 켜면 볼륨 키로 셔터를 눌러요. " +
                     "위치 기록을 켜면 찍은 곳이 사진 파일에 들어가서 기본 갤러리에서도 보이지만, 사진을 공유할 때 위치도 함께 가요." +
                     if (s.recordLocation && !c.locationGranted) " 지금은 위치 권한이 없어서 위치가 기록되지 않아요." else "",
                 if (s.recordLocation && !c.locationGranted) Ds.Danger else Ds.Sub,
@@ -367,7 +382,7 @@ fun DevelopModal(c: AppController, roll: DevelopedRoll) {
                 Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                     row.forEachIndexed { k, shot ->
                         Column(Modifier.weight(1f).tap { c.openViewer(shot) }) {
-                            Thumb(shot, 200, Modifier.fillMaxWidth().aspectRatio(3f / 4f))
+                            Thumb(shot, 480, Modifier.fillMaxWidth().aspectRatio(3f / 4f))
                             Text("%02d".format(r * 6 + k + 1), Ds.Sub, TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp), Modifier.padding(top = 2.dp))
                         }
                     }

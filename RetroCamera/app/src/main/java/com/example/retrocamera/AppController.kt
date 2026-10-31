@@ -239,19 +239,19 @@ class AppController(private val appContext: Context) {
             ?: appContext.assets.open(film.lutAsset).use { CubeLut.parse(it) }
     }
 
-    // ── 필름 메뉴: 지우기 / 기본 필름 다시 넣기 / 새 필름 만들기 ──
+    // ── 필름 메뉴: 보관 / 필름 보관함에서 불러오기·지우기 / 새 필름 만들기 ──
 
-    /** 필름 메뉴(스트립·그리드·필름 넣기)에 보이는 필름. 지운 필름은 빠진다 */
+    /** 필름 메뉴(스트립·그리드·필름 넣기)에 보이는 필름. 보관한 필름은 빠진다 */
     val visibleFilms: List<Film> get() = orderedFilms().filter { it.key !in state.hiddenFilms }
 
-    /** 지운 필름까지 포함한 전체 필름을 저장된 순서대로. 순서에 없는 필름(새로 만든 것 등)은 기본 순서로 뒤에 붙는다 */
+    /** 보관한 필름까지 포함한 전체 필름을 저장된 순서대로. 순서에 없는 필름(새로 만든 것 등)은 기본 순서로 뒤에 붙는다 */
     private fun orderedFilms(): List<Film> {
         val order = state.filmOrder
         if (order.isEmpty()) return Film.entries
         return Film.entries.sortedBy { f -> order.indexOf(f.key).let { if (it < 0) Int.MAX_VALUE else it } }
     }
 
-    // ── 필름 메뉴(그리드)에서 고른 필름: 꾹 눌러 고르고, 지우거나 순서를 바꾼다 ──
+    // ── 필름 메뉴(그리드)에서 고른 필름: 꾹 눌러 고르고, 보관하거나 순서를 바꾼다 ──
     var gridSelection by mutableStateOf<Set<String>>(emptySet())
 
     fun toggleGridSelect(film: Film) {
@@ -266,26 +266,25 @@ class AppController(private val appContext: Context) {
         return false
     }
 
-    fun askDeleteFilm(film: Film) = askDeleteFilms(listOf(film))
+    fun askArchiveFilm(film: Film) = askArchiveFilms(listOf(film))
 
-    fun askDeleteFilms(films: List<Film>) {
+    /** 필름을 필름 메뉴에서 빼서 보관함에 넣는다. 지우는 게 아니라 보관이라 보관함에서 언제든 다시 불러올 수 있다 */
+    fun askArchiveFilms(films: List<Film>) {
         if (films.isEmpty() || filmMenuLocked()) return
-        if (visibleFilms.size - films.size < 1) { showToast("마지막 필름은 지울 수 없어요"); return }
+        if (visibleFilms.size - films.size < 1) { showToast("마지막 필름은 보관할 수 없어요"); return }
         alert = AlertState(
-            if (films.size == 1) "${films[0].displayName} 필름을 지울까요?" else "필름 ${films.size}개를 지울까요?",
-            "필름 메뉴에서만 빠지고 이미 찍은 사진은 그대로예요. \"기본 필름 불러오기\"로 다시 넣을 수 있어요.",
-            "지우기",
-        ) { deleteFilms(films) }
+            if (films.size == 1) "${films[0].displayName} 필름을 보관할까요?" else "필름 ${films.size}개를 보관할까요?",
+            "필름 메뉴에서만 빠지고 이미 찍은 사진은 그대로예요. \"필름 보관함\"에서 다시 불러올 수 있어요.",
+            "보관",
+        ) { archiveFilms(films) }
     }
 
-    fun deleteFilm(film: Film) = deleteFilms(listOf(film))
-
-    fun deleteFilms(films: List<Film>) {
+    fun archiveFilms(films: List<Film>) {
         alert = null
         val shown = visibleFilms
         val left = shown.filter { it !in films }
         if (left.isEmpty() || left.size == shown.size) return
-        // 지운 필름이 고른 필름이면 그 자리 가까이의 남은 필름으로
+        // 보관한 필름이 고른 필름이면 그 자리 가까이의 남은 필름으로
         val firstGone = shown.indexOfFirst { it in films }
         val neighbor = left[minOf(firstGone, left.lastIndex)]
         var next = state.copy(hiddenFilms = state.hiddenFilms + films.map { it.key })
@@ -293,7 +292,7 @@ class AppController(private val appContext: Context) {
         if (!tryCommit(next)) return
         if (pendingFilm in films) pendingFilm = neighbor
         gridSelection = emptySet()
-        showToast(if (films.size == 1) "${films[0].displayName} 필름을 지웠어요" else "필름 ${films.size}개를 지웠어요")
+        showToast(if (films.size == 1) "${films[0].displayName} 필름을 보관했어요" else "필름 ${films.size}개를 보관했어요")
     }
 
     /** 고른 필름 한 개를 보이는 순서에서 앞(-1)이나 뒤(+1)로 한 칸 옮긴다 */
@@ -304,22 +303,42 @@ class AppController(private val appContext: Context) {
         val i = shown.indexOfFirst { it.key == key }
         val j = i + dir
         if (i < 0 || j !in shown.indices) return
-        // 지운 필름까지 포함한 전체 순서에서 이웃한 두 필름의 자리를 맞바꾼다
+        // 보관한 필름까지 포함한 전체 순서에서 이웃한 두 필름의 자리를 맞바꾼다
         val full = orderedFilms().map { it.key }.toMutableList()
         val a = full.indexOf(shown[i].key); val b = full.indexOf(shown[j].key)
         full[a] = shown[j].key; full[b] = shown[i].key
         tryCommit(state.copy(filmOrder = full))
     }
 
-    /** "기본 필름 불러오기": 지웠던 기본 필름을 제자리에 다시 넣는다. 이미 있으면 알려 준다 */
-    fun restoreFilm(film: Film) {
-        if (film.key !in state.hiddenFilms) { showToast("필름이 이미 들어있습니다."); return }
+    /** 필름 보관함에 들어 있는 필름: 보관한 필름 중 완전히 지우지 않은 것 */
+    val storedFilms: List<Film> get() = orderedFilms().filter { it.key in state.hiddenFilms && it.key !in state.purgedFilms }
+
+    /** 보관함에서 필름을 꺼내 필름 메뉴에 다시 넣는다(원래 자리로). 이미 들어있으면 알려 준다 */
+    fun unarchiveFilm(film: Film) {
+        if (film.key !in state.hiddenFilms || film.key in state.purgedFilms) { showToast("필름이 이미 들어있습니다."); return }
         if (!tryCommit(state.copy(hiddenFilms = state.hiddenFilms - film.key))) return
-        showToast("${film.displayName} 필름을 다시 넣었어요")
+        showToast("${film.displayName} 필름을 불러왔어요")
+    }
+
+    /** 내가 만든 필름만 보관함에서 완전히 지울 수 있다(기본 필름은 지울 수 없다) */
+    fun askPurgeFilm(film: Film) {
+        if (!film.isUserMade) { showToast("기본 필름은 지울 수 없어요"); return }
+        alert = AlertState(
+            "${film.displayName} 필름을 지울까요?",
+            "보관함에서 완전히 사라져요. 이 필름으로 이미 찍은 사진은 그대로예요.",
+            "지우기",
+        ) { purgeFilm(film) }
+    }
+
+    fun purgeFilm(film: Film) {
+        alert = null
+        if (!film.isUserMade || film.key !in state.hiddenFilms) return
+        if (!tryCommit(state.copy(purgedFilms = state.purgedFilms + film.key))) return
+        showToast("${film.displayName} 필름을 지웠어요")
     }
 
     /** 새 필름 만들기 흐름의 단계(없으면 null) */
-    enum class Maker { MENU, RESTORE, SOURCE, CAPTURE, EDITOR }
+    enum class Maker { MENU, VAULT, SOURCE, CAPTURE, EDITOR }
     var maker by mutableStateOf<Maker?>(null)
     /** 편집할 사진(가로 w, 세로 h, ARGB) */
     class EditorSource(val px: IntArray, val w: Int, val h: Int)
@@ -423,7 +442,7 @@ class AppController(private val appContext: Context) {
     }
 
     /** 사진 파일이 저장된 뒤에 호출한다(저장 성공 -> 카운트 감소 순서). */
-    fun onPhotoSaved(saved: SavedPhoto, mode: Mode, film: Film, rollStart: Long? = null, lat: Double? = null, lon: Double? = null) {
+    fun onPhotoSaved(saved: SavedPhoto, mode: Mode, film: Film, rollStart: Long? = null, lat: Double? = null, lon: Double? = null, grainAmount: Float? = null, grainSize: Float? = null) {
         val now = System.currentTimeMillis()
         if (mode == Mode.FILM) {
             // 찍는 동안 롤을 버렸거나(버린 뒤 새 롤을 넣은 경우 포함) 롤이 바뀌었으면 이 사진은 새 롤에 섞이지 않게 지운다
@@ -431,7 +450,7 @@ class AppController(private val appContext: Context) {
                 saved.file?.let { f -> scope.launch(Dispatchers.IO) { File(appContext.filesDir, f).delete() } }
                 return
             }
-            val (next, finished) = RollEngine.recordFilmShot(state, Shot(film, saved.file!!, now, null, lat, lon), now)
+            val (next, finished) = RollEngine.recordFilmShot(state, Shot(film, saved.file!!, now, null, lat, lon, grainAmount, grainSize), now)
             if (!tryCommit(next)) {
                 scope.launch(Dispatchers.IO) { File(appContext.filesDir, saved.file).delete() }
                 return
@@ -445,7 +464,7 @@ class AppController(private val appContext: Context) {
                 }
             }
         } else {
-            if (!tryCommit(RollEngine.recordSingleShot(state, Shot(film, saved.uri!!, now, saved.uri, lat, lon)))) {
+            if (!tryCommit(RollEngine.recordSingleShot(state, Shot(film, saved.uri!!, now, saved.uri, lat, lon, grainAmount, grainSize)))) {
                 scope.launch(Dispatchers.IO) { runCatching { appContext.contentResolver.delete(android.net.Uri.parse(saved.uri), null, null) } }
             }
         }
@@ -518,6 +537,8 @@ class AppController(private val appContext: Context) {
     fun setStamp(v: Boolean) = commit(RollEngine.setStamp(state, v))
     fun setVolumeShutter(v: Boolean) = commit(RollEngine.setVolumeShutter(state, v))
     fun setGrain(v: Boolean) = commit(RollEngine.setGrain(state, v))
+    fun setGrainLook(amount: Float = state.grainAmount, size: Float = state.grainSize) =
+        commit(RollEngine.setGrainLook(state, amount, size))
 
     /** 위치 권한을 갖고 있는지(MainActivity가 알려 준다) */
     var locationGranted by mutableStateOf(false)
@@ -547,7 +568,7 @@ class AppController(private val appContext: Context) {
     /** 촬영 설정(격자/각인/그레인/볼륨 셔터)과 노출을 처음 값으로 되돌린다. 사진과 롤은 그대로 */
     fun resetSettings() {
         val d = AppState()
-        commit(state.copy(grid = d.grid, stamp = d.stamp, volumeShutter = d.volumeShutter, grainOn = d.grainOn, recordLocation = d.recordLocation))
+        commit(state.copy(grid = d.grid, stamp = d.stamp, volumeShutter = d.volumeShutter, grainOn = d.grainOn, grainAmount = d.grainAmount, grainSize = d.grainSize, recordLocation = d.recordLocation))
         exposureIndex = 0
         onExposureChange?.invoke(0)
         onZoomReset?.invoke()

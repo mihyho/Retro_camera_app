@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 테마 아이콘용 단색 렌즈 (tools/make_icon.js 로 생성) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M26,54a28,28 0 1,0 56,0a28,28 0 1,0 -56,0zM31,54a23,23 0 1,0 46,0a23,23 0 1,0 -46,0z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M37,54a17,17 0 1,0 34,0a17,17 0 1,0 -34,0z" />
+</vector>

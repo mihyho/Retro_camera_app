@@ -71,7 +71,7 @@ object RollExporter {
 /** 사진 썸네일. 내보내기 전에는 비공개 파일, 후에는 갤러리 uri에서 읽는다. */
 object ThumbLoader {
     // 장수가 아니라 바이트로 한도를 둔다: 재생의 한 장 보기는 큰 그림(약 5MB)을 넣으므로 장수 기준이면 수백 MB가 된다
-    private val cache = object : LruCache<String, Bitmap>(24 * 1024 * 1024) {
+    private val cache = object : LruCache<String, Bitmap>(48 * 1024 * 1024) {
         override fun sizeOf(key: String, value: Bitmap) = value.byteCount
     }
 
@@ -80,12 +80,23 @@ object ThumbLoader {
         val key = (if (!uri.isNullOrEmpty()) uri else shot.file) + "@$px"
         cache.get(key)?.let { return it }
         val bmp = runCatching {
-            if (!uri.isNullOrEmpty()) context.contentResolver.loadThumbnail(Uri.parse(uri), Size(px, px), null)
-            else decodeFile(File(context.filesDir, shot.file), px)
+            if (!uri.isNullOrEmpty()) {
+                // 큰 보기는 시스템 썸네일(저해상도 캐시일 수 있음)이 아니라 원본을 목표 크기로 직접 디코딩한다(회전도 자동 적용)
+                if (px >= 800) runCatching { decodeUri(context, Uri.parse(uri), px) }.getOrNull()
+                    ?: context.contentResolver.loadThumbnail(Uri.parse(uri), Size(px, px), null)
+                else context.contentResolver.loadThumbnail(Uri.parse(uri), Size(px, px), null)
+            } else decodeFile(File(context.filesDir, shot.file), px)
         }.getOrNull()
         if (bmp != null) cache.put(key, bmp)
         return bmp
     }
+
+    private fun decodeUri(context: Context, uri: Uri, px: Int): Bitmap =
+        android.graphics.ImageDecoder.decodeBitmap(android.graphics.ImageDecoder.createSource(context.contentResolver, uri)) { dec, info, _ ->
+            val long = maxOf(info.size.width, info.size.height)
+            if (long > px) { val k = px.toFloat() / long; dec.setTargetSize(Math.round(info.size.width * k), Math.round(info.size.height * k)) }
+            dec.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+        }
 
     private fun decodeFile(f: File, px: Int): Bitmap? {
         if (!f.exists()) return null

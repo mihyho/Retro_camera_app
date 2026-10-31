@@ -1,6 +1,9 @@
 package com.example.retrocamera
 
+import com.example.retrocamera.data.ColorGrade
+import com.example.retrocamera.data.ColorMix
 import com.example.retrocamera.data.CustomFilm
+import com.example.retrocamera.data.GradeZone
 import com.example.retrocamera.data.Film
 import com.example.retrocamera.data.FilmAdjust
 import org.junit.Assert.assertEquals
@@ -106,6 +109,99 @@ class FilmLookTest {
         }
     }
 
+    private fun mix(ch: Int, hue: Float = 0f, sat: Float = 0f, lum: Float = 0f) = ColorMix(
+        List(8) { if (it == ch) hue else 0f }, List(8) { if (it == ch) sat else 0f }, List(8) { if (it == ch) lum else 0f },
+    )
+
+    private fun hueOf(c: FloatArray): Float {
+        val mx = maxOf(c[0], c[1], c[2]); val mn = minOf(c[0], c[1], c[2]); val d = mx - mn
+        if (d < 1e-6f) return 0f
+        val h = when (mx) { c[0] -> ((c[1] - c[2]) / d) % 6f; c[1] -> (c[2] - c[0]) / d + 2f; else -> (c[0] - c[1]) / d + 4f } * 60f
+        return if (h < 0) h + 360f else h
+    }
+
+    @Test
+    fun colorMixSaturationMinusMakesThatColorGrayButNotOthers() {
+        val green = run(FilmAdjust(mix = mix(3, sat = -100f)), .1f, .8f, .2f)
+        assertTrue(green.max() - green.min() < .08f)
+        val red = run(FilmAdjust(mix = mix(3, sat = -100f)), .9f, .2f, .1f)
+        assertEquals(.9f, red[0], .02f) // 초록만 건드리고 빨강은 그대로
+    }
+
+    @Test
+    fun colorMixHueShiftsOnlyThatColor() {
+        val before = hueOf(floatArrayOf(.1f, .8f, .2f))
+        val after = hueOf(run(FilmAdjust(mix = mix(3, hue = 100f)), .1f, .8f, .2f))
+        assertTrue(after > before + 15f)
+        assertEquals(hueOf(floatArrayOf(.9f, .2f, .1f)), hueOf(run(FilmAdjust(mix = mix(3, hue = 100f)), .9f, .2f, .1f)), 1.5f)
+    }
+
+    @Test
+    fun colorMixLuminanceBrightensThatColorAndLeavesGrayAlone() {
+        val a = FilmAdjust(mix = mix(5, lum = 100f)) // 파랑
+        assertTrue(luma(run(a, .15f, .25f, .8f)) > luma(floatArrayOf(.15f, .25f, .8f)) + .03f)
+        val gray = run(a, .5f, .5f, .5f)
+        assertEquals(.5f, gray[0], .005f); assertEquals(.5f, gray[2], .005f)
+    }
+
+    @Test
+    fun colorMixBlendsSmoothlyBetweenNeighborColors() {
+        // 노랑(60도)과 초록(120도) 사이를 지나며 결과가 튀지 않는다
+        val a = FilmAdjust(mix = mix(2, hue = 100f))
+        var prev = Float.NaN
+        for (h in 55..125 step 2) {
+            val rad = Math.toRadians(h.toDouble())
+            val c = floatArrayOf(.5f + .4f * Math.cos(rad).toFloat(), .5f + .4f * Math.cos(rad - 2.0944).toFloat(), .5f + .4f * Math.cos(rad + 2.0944).toFloat())
+            val out = hueOf(run(a, c[0], c[1], c[2])) - hueOf(c)
+            if (!prev.isNaN()) assertTrue("h=$h", Math.abs(out - prev) < 8f)
+            prev = out
+        }
+    }
+
+    @Test
+    fun gradingTintsEachToneRangeWithItsOwnColor() {
+        val a = FilmAdjust(grade = ColorGrade(
+            shadows = GradeZone(hue = 0f, sat = 100f),      // 어두운 곳: 빨강
+            highlights = GradeZone(hue = 240f, sat = 100f), // 밝은 곳: 파랑
+        ))
+        val dark = run(a, .08f, .08f, .08f)
+        val bright = run(a, .92f, .92f, .92f)
+        val mid = run(a, .5f, .5f, .5f)
+        assertTrue(dark[0] > dark[2] + .03f)
+        assertTrue(bright[2] > bright[0] + .03f)
+        assertEquals(mid[0], mid[2], .005f) // 중간 영역은 색을 안 골랐으니 그대로
+    }
+
+    @Test
+    fun gradingMidtonesAffectMidNotExtremes() {
+        val a = FilmAdjust(grade = ColorGrade(mids = GradeZone(hue = 120f, sat = 100f)))
+        val mid = run(a, .5f, .5f, .5f)
+        assertTrue(mid[1] > mid[0] + .03f)
+        assertEquals(0f, run(a, 0f, 0f, 0f)[1], .01f)
+        assertEquals(1f, run(a, 1f, 1f, 1f)[1], .01f)
+    }
+
+    @Test
+    fun gradingLuminanceAndBalance() {
+        val lift = FilmAdjust(grade = ColorGrade(shadows = GradeZone(lum = 100f)))
+        assertTrue(run(lift, .1f, .1f, .1f)[0] > .2f)
+        assertEquals(.9f, run(lift, .9f, .9f, .9f)[0], .02f)
+        // 균형 +: 경계가 어두운 쪽으로 내려가 같은 회색이 밝은 영역으로 더 많이 세어진다
+        val tintHi = GradeZone(hue = 240f, sat = 100f)
+        val neutral = run(FilmAdjust(grade = ColorGrade(highlights = tintHi)), .45f, .45f, .45f)
+        val shifted = run(FilmAdjust(grade = ColorGrade(highlights = tintHi, balance = 100f)), .45f, .45f, .45f)
+        assertTrue(shifted[2] - shifted[0] > neutral[2] - neutral[0])
+    }
+
+    @Test
+    fun gradingResultsStayInRange() {
+        val extreme = FilmAdjust(
+            mix = ColorMix(List(8) { 100f }, List(8) { 100f }, List(8) { 100f }),
+            grade = ColorGrade(GradeZone(10f, 100f, 100f), GradeZone(120f, 100f, -100f), GradeZone(300f, 100f, 100f), 100f, 100f),
+        )
+        for (v in floatArrayOf(0f, .2f, .5f, .8f, 1f)) run(extreme, v, 1f - v, v / 3f).forEach { assertTrue(it in 0f..1f) }
+    }
+
     @Test
     fun bakeStacksOnBaseLut() {
         val dim = FilmLook.bake(null, FilmAdjust(exposure = -1f))
@@ -123,8 +219,8 @@ class FilmLookTest {
             val f = Film.fromKey("custom_1")
             assertTrue(f in Film.entries)
             assertEquals(0, f.iso)
-            assertEquals(0.4f, f.clarity, 1e-4f) // 기본 필름 없이 시작: 명료도 +50 -> +0.4
-            assertEquals(0.24f, f.texture, 1e-4f)
+            assertEquals(0.4f, f.texture, 1e-4f)       // 텍스처 +40 -> +0.4
+            assertEquals(0.5f, f.localContrast, 1e-4f) // 명료도 +50 -> +0.5
             // 목록이 다시 만들어져도 같은 필름으로 본다
             Film.setCustom(listOf(def, def.copy(key = "custom_2")))
             assertEquals(f, Film.fromKey("custom_1"))
@@ -133,5 +229,19 @@ class FilmLookTest {
             Film.setCustom(emptyList())
         }
         assertFalse(Film.entries.any { it.key.startsWith("custom_") })
+    }
+
+    @Test
+    fun builtInMonochromeIsGrayAndDreamingKeepsColor() {
+        val mono = FilmLook.bake(null, Film.MONOCHROME.custom!!.adjust)
+        val c = floatArrayOf(.8f, .3f, .2f)
+        FilmLook.sample(mono, c)
+        assertTrue(c.max() - c.min() < .03f) // 채도 -100, 생동감 -100: 색이 거의 없다
+        val dream = FilmLook.bake(null, Film.DREAMING.custom!!.adjust)
+        val d = floatArrayOf(.8f, .3f, .2f)
+        FilmLook.sample(dream, d)
+        assertTrue(d.max() - d.min() > .1f)
+        // 필름 결과는 모두 0~1 안
+        for (v in dream.data) assertTrue(v in 0f..1f)
     }
 }
