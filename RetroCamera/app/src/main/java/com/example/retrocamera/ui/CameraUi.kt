@@ -13,6 +13,8 @@ import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -121,26 +123,33 @@ fun CameraBody(
         val rowH = with(d) { 89.dp.roundToPx() }; val modesH = with(d) { 34.dp.roundToPx() }
         val rowY = h - insetBottom - vMargin - rowH
         val modesY = rowY - with(d) { 28.dp.roundToPx() } - modesH // 셔터 줄과의 간격이 스트립과의 간격보다 넓다
-        val stripY = if (land) maxOf(barY + topH, modesY - with(d) { 14.dp.roundToPx() } - band) else pY + pH
+        val stripY = if (land) maxOf(barY + topH, modesY - with(d) { 24.dp.roundToPx() } - band) else pY + pH
 
         AndroidView({ glView }, Modifier.fillMaxSize())
         if (c.perm == AppController.Perm.GRANTED) {
             LaunchedEffect(pX, pY, pW, pH, radius) { c.onPreviewRect?.invoke(intArrayOf(pX, pY, pW, pH, radius)) }
-            Box(Modifier.offset { IntOffset(rx, barY) }.width(with(d) { rw.toDp() })) { topBar() }
-            Box(Modifier.offset { IntOffset(pX, pY) }.size(with(d) { pW.toDp() }, with(d) { pH.toDp() }).clip(RoundedCornerShape(26.dp))) {
+            val capturing = c.maker == AppController.Maker.CAPTURE
+            if (!capturing) Box(Modifier.offset { IntOffset(rx, barY) }.width(with(d) { rw.toDp() })) { topBar() }
+            Box(Modifier.offset { IntOffset(pX, pY) }.size(with(d) { pW.toDp() }, with(d) { pH.toDp() })
+                // 필름 메뉴(그리드)를 연 동안은 모서리를 둥글게 자르지 않는다: 영상 타일은 GL이 네모로 그려서, 위에 얹는 칸만 둥글게 자르면 아래쪽 모서리가 흐리게 잘려 보인다
+                .then(if (c.drawerOpen) Modifier else Modifier.clip(RoundedCornerShape(26.dp)))) {
                 // 가로에서는 프리뷰가 상태바 뒤까지 올라가므로, 필름 칩이 상태바 글자와 겹치지 않게 내린다
                 Viewfinder(c, onZoomBy, onZoomStep, onLoad, with(d) { (insetTop - margin).coerceAtLeast(0).toDp() })
             }
             if (!land) {
                 Column(Modifier.offset { IntOffset(rx, stripY) }.width(with(d) { rw.toDp() })) {
-                    FilmStrip(c, origin = IntOffset(rx, stripY))
-                    Spacer(Modifier.height(8.dp)) // 스트립과 FILM/SINGLE 줄 사이를 살짝 띄운다
-                    Controls(c, onLibrary, onShutter, onGrid, Modifier.height((with(d) { (h - stripY - band).coerceAtLeast(0).toDp() } - 8.dp).coerceAtLeast(0.dp)))
+                    // 필름 메뉴가 열리면 스트립 자리는 지우기/순서 버튼, 필름용 사진을 찍는 동안은 비운다
+                    if (capturing) Spacer(Modifier.height(FILM_STRIP_HEIGHT)) else if (c.drawerOpen) FilmMenuBar(c) else FilmStrip(c, origin = IntOffset(rx, stripY))
+                    // 스트립과 FILM/SINGLE 줄 사이를 띄운다. 14dp 띄우면 셔터 줄은 6dp 내려가 버리므로 컨트롤 높이를 12dp 줄여 셔터 줄 위치는 그대로 둔다
+                    Spacer(Modifier.height(14.dp))
+                    Controls(c, onLibrary, onShutter, onGrid, Modifier.height((with(d) { (h - stripY - band).coerceAtLeast(0).toDp() } - 20.dp).coerceAtLeast(0.dp)))
                 }
             } else {
                 // 가로: 스트립 → (좁은 간격) → FILM/SINGLE → (조금 더 넓은 간격) → 셔터 줄. 셔터 줄 위치는 그대로
-                Box(Modifier.offset { IntOffset(rx, stripY) }.width(with(d) { rw.toDp() })) { FilmStrip(c, origin = IntOffset(rx, stripY)) }
-                ModesRow(c, Modifier.offset { IntOffset(rx, modesY) }.width(with(d) { rw.toDp() }).height(34.dp))
+                Box(Modifier.offset { IntOffset(rx, stripY) }.width(with(d) { rw.toDp() })) {
+                    if (capturing) Unit else if (c.drawerOpen) FilmMenuBar(c) else FilmStrip(c, origin = IntOffset(rx, stripY))
+                }
+                if (!capturing) ModesRow(c, Modifier.offset { IntOffset(rx, modesY) }.width(with(d) { rw.toDp() }).height(34.dp))
                 ButtonsRow(c, onLibrary, onShutter, onGrid, Modifier.offset { IntOffset(rx, rowY) }.width(with(d) { rw.toDp() }).height(89.dp))
             }
         } else {
@@ -244,7 +253,9 @@ private fun Shutter(onClick: () -> Unit) {
 @Composable
 fun Controls(c: AppController, onLibrary: () -> Unit, onShutter: () -> Unit, onGrid: () -> Unit, modifier: Modifier = Modifier) {
     Column(modifier) {
-        ModesRow(c, Modifier.fillMaxWidth().height(34.dp))
+        // 필름을 만들 사진을 찍는 동안은 FILM/SINGLE 줄도 없이(자리만 남기고) 셔터만 둔다
+        if (c.maker == AppController.Maker.CAPTURE) Spacer(Modifier.fillMaxWidth().height(34.dp))
+        else ModesRow(c, Modifier.fillMaxWidth().height(34.dp))
         ButtonsRow(c, onLibrary, onShutter, onGrid, Modifier.fillMaxWidth().weight(1f))
     }
 }
@@ -265,10 +276,11 @@ fun ButtonsRow(c: AppController, onLibrary: () -> Unit, onShutter: () -> Unit, o
     val s = c.state
     val roll = s.roll
     val libShape = RoundedCornerShape(12.dp)
+    val capturing = c.maker == AppController.Maker.CAPTURE // 필름용 사진을 찍는 중: 셔터만 보인다
     run {
         Row(modifier.padding(horizontal = 30.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                Box(
+                if (!capturing) Box(
                     Modifier.size(50.dp).clip(libShape).background(Ds.Bg2).border(1.5.dp, Ds.Line, libShape).tap(onClick = onLibrary),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -282,7 +294,7 @@ fun ButtonsRow(c: AppController, onLibrary: () -> Unit, onShutter: () -> Unit, o
             }
             Shutter(onShutter)
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-                Box(Modifier.size(50.dp).clip(CircleShape).background(if (c.drawerOpen) Ds.Accent else Color.Transparent).tap(onClick = onGrid), contentAlignment = Alignment.Center) {
+                if (!capturing) Box(Modifier.size(50.dp).clip(CircleShape).background(if (c.drawerOpen) Ds.Accent else Color.Transparent).tap(onClick = onGrid), contentAlignment = Alignment.Center) {
                     Icon(Ico.CIRCLES, 26.dp, if (c.drawerOpen) Ds.OnAccent else Ds.Ink)
                 }
             }
@@ -297,11 +309,12 @@ fun Viewfinder(c: AppController, onZoomBy: (Float) -> Unit, onZoomStep: () -> Un
     val s = c.state
     val noFilm = s.mode == Mode.FILM && s.roll == null
     val gestures = !c.drawerOpen && !noFilm && c.panel == null && !c.loadOpen
+    val capturing = c.maker == AppController.Maker.CAPTURE // 필름용 사진을 찍는 중: 안내와 셔터 말고는 아무것도 얹지 않는다
     // 영상은 GL이 이 뒤에서 그린다. 여기는 프리뷰 위에 얹는 요소들
     Box(Modifier.fillMaxSize()) {
         if (gestures) GestureLayer(onZoomBy)
-        if (s.grid && !c.drawerOpen && !noFilm) GridLines()
-        if (!c.drawerOpen && !noFilm) {
+        if (s.grid && !c.drawerOpen && !noFilm && !capturing) GridLines()
+        if (!c.drawerOpen && !noFilm && !capturing) {
             FilmChip(Ds.liveFilm ?: c.currentFilm, Modifier.align(Alignment.TopStart).padding(start = 8.dp, end = 8.dp, bottom = 8.dp, top = 8.dp + chipInset))
             if (s.stamp) Text(
                 c.stampText(), Ds.Stamp,
@@ -311,6 +324,7 @@ fun Viewfinder(c: AppController, onZoomBy: (Float) -> Unit, onZoomStep: () -> Un
             )
             if (c.zoomMax > 1.01f) ZoomHud(c.zoomRatio, onZoomStep, Modifier.align(Alignment.BottomCenter).padding(bottom = if (c.exposureOpen) 92.dp else 12.dp))
         }
+        if (c.maker == AppController.Maker.CAPTURE) CaptureBanner(c, Modifier.align(Alignment.TopCenter).padding(top = 52.dp))
         if (c.drawerOpen) FilmGrid(c)
         if (noFilm) NoFilmOverlay(onLoad)
         if (c.exposureOpen) ExposurePanel(c, Modifier.align(Alignment.BottomCenter))
@@ -355,7 +369,7 @@ private fun GridLines() {
 }
 
 /** 필름 이름이 이미 숫자로 끝나면(Ektar100) ISO를 덧붙이지 않는다 */
-fun filmTitle(f: Film) = if (f.displayName.last().isDigit()) f.displayName else "${f.displayName} ${f.iso}"
+fun filmTitle(f: Film) = if (f.iso <= 0 || f.displayName.last().isDigit()) f.displayName else "${f.displayName} ${f.iso}"
 
 @Composable
 private fun FilmChip(film: Film, modifier: Modifier) {
@@ -389,16 +403,33 @@ private fun Shot(trigger: Int) {
 
 /** 필름 그리드: 같은 실시간 영상이 칸마다 해당 필름 LUT로 보인다(그림은 LutRenderer의 타일, 여기는 이름/선택/잠금) */
 @Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 private fun FilmGrid(c: AppController) {
     val s = c.state
-    val films = Film.entries
-    val rows = (films.size + GRID_COLS - 1) / GRID_COLS
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val films = c.visibleFilms // 지운 필름은 그리드에서도 빠진다(GL 쪽도 같은 순서로 그린다)
+    val rows = (films.size + 1 + GRID_COLS - 1) / GRID_COLS // 마지막 필름 다음 칸은 "+"(새 필름)
     Column(Modifier.fillMaxSize()) {
         repeat(rows) { r ->
             Row(Modifier.weight(1f).fillMaxWidth()) {
                 repeat(GRID_COLS) { col ->
-                    val f = films.getOrNull(r * GRID_COLS + col)
-                    if (f == null) {
+                    val idx = r * GRID_COLS + col
+                    val f = films.getOrNull(idx)
+                    if (idx == films.size && c.gridSelection.isNotEmpty()) {
+                        Box(Modifier.weight(1f).fillMaxHeight().background(Ds.Bg)) // 고르는 중에는 "+" 칸을 비워 둔다
+                    } else if (idx == films.size) {
+                        val locked = s.mode == Mode.FILM && s.roll != null
+                        Box(
+                            Modifier.weight(1f).fillMaxHeight().background(Ds.Bg).border(0.5.dp, Ds.Line)
+                                .tap { if (locked) c.lockedFilmTapped() else c.openFilmMenu() },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Icon(Ico.PLUS, 30.dp, Ds.Accent)
+                                Text("새 필름", Ds.Sub, t11)
+                            }
+                        }
+                    } else if (f == null) {
                         Box(Modifier.weight(1f).fillMaxHeight().background(Ds.Bg))
                     } else {
                         val roll = s.roll
@@ -408,11 +439,34 @@ private fun FilmGrid(c: AppController) {
                             roll != null -> roll.film == f
                             else -> c.pendingFilm == f
                         }
+                        val selecting = c.gridSelection.isNotEmpty()
+                        val picked = f.key in c.gridSelection
                         Box(
                             Modifier.weight(1f).fillMaxHeight().border(0.5.dp, Ds.Bg)
-                                .tap { if (current) c.closeDrawer() else if (locked) c.lockedFilmTapped() else { c.takeFilm(f); c.showToast(f.displayName) } },
+                                .combinedClickable(
+                                    onClick = {
+                                        when {
+                                            selecting -> c.toggleGridSelect(f)                  // 고르는 중에는 탭이 선택을 바꾼다
+                                            current -> c.closeDrawer()
+                                            locked -> c.lockedFilmTapped()
+                                            else -> { c.takeFilm(f); c.showToast(f.displayName) }
+                                        }
+                                    },
+                                    onLongClick = {
+                                        // 꾹 누르면 선택 시작. 롤을 장전한 동안은 필름 메뉴를 바꾸지 않는다
+                                        if (s.mode == Mode.FILM && s.roll != null) c.lockedFilmTapped()
+                                        else { haptic.performHapticFeedback(HapticFeedbackType.LongPress); c.toggleGridSelect(f) }
+                                    },
+                                ),
                         ) {
                             if (locked) Box(Modifier.fillMaxSize().background(Ds.Bg.copy(alpha = .6f)))
+                            if (picked) Box(Modifier.fillMaxSize().background(Ds.Accent.copy(alpha = .30f)))
+                            if (selecting) Box(
+                                Modifier.align(Alignment.TopStart).padding(7.dp).size(22.dp).clip(CircleShape)
+                                    .background(if (picked) Ds.Accent else Color.Black.copy(alpha = .3f))
+                                    .border(1.5.dp, if (picked) Ds.Accent else Color.White, CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) { if (picked) Icon(Ico.CHECK, 14.dp, Ds.OnAccent) }
                             Text(
                                 f.displayName, Color.White, t11.copy(fontWeight = FontWeight.Medium, textAlign = TextAlign.Center),
                                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()

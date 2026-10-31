@@ -34,7 +34,7 @@ object PhotoPipeline {
         val bmp = cropToFourFive(full, rotationDegrees)
 
         // 필름의 룩: 색감(LUT) + 명료도 + 그레인. 명료도와 그레인 값은 필름마다 정해져 있다(Film.clarity, Film.grain)
-        applyLut(bmp, lut, film.clarity, if (grainOn) film.grain else 0f)
+        applyLut(bmp, lut, film.clarity, if (grainOn) film.grain else 0f, film.texture)
 
         if (stampText != null) drawStamp(bmp, stampText, rotationDegrees)
 
@@ -128,7 +128,7 @@ object PhotoPipeline {
      * 제한해서 색감을 입히는 과정에서 노이즈가 늘지 않게 한다(그레인은 이 뒤에 의도해서 얹는다).
      * 큰 이미지를 통째로 IntArray로 만들지 않도록 띠(strip) 단위로 처리하되, 블러에 필요한 위아래 여백 행을 함께 읽는다.
      */
-    private fun applyLut(bmp: Bitmap, lut: CubeLut, clarity: Float, grain: Float) {
+    private fun applyLut(bmp: Bitmap, lut: CubeLut, clarity: Float, grain: Float, texture: Float = 0f) {
         val w = bmp.width
         val h = bmp.height
         val r = detailRadius(w)
@@ -153,6 +153,7 @@ object PhotoPipeline {
                 val to = minOf(to0, from + chunk)
                 if (from < to) {
                     if (rLarge > 0) Clarity.applyArgb(block, large, from, to, clarity)
+                    if (texture != 0f) Texture.applyArgb(block, base, from, to, texture)
                     LutApplier.applyDetailSafe(block, base, from, to, lut)
                     if (grain > 0f) Grain.applyArgb(block, from, to, w, top, strength = grain)
                 }

@@ -56,8 +56,18 @@ fun CameraScreen(
     BackHandler(enabled = c.alert != null) { c.alert = null }
     BackHandler(enabled = c.alert == null && c.loadOpen) { c.loadOpen = false }
     BackHandler(enabled = c.alert == null && !c.loadOpen && panel != null) { if (viewer != null) c.closeViewer(viewer) else c.panel = null }
-    BackHandler(enabled = panel == null && !c.loadOpen && c.drawerOpen) { c.closeDrawer() }
+    BackHandler(enabled = panel == null && !c.loadOpen && c.drawerOpen) {
+        if (c.gridSelection.isNotEmpty()) c.clearGridSelection() else c.closeDrawer() // 고르는 중이면 선택부터 푼다
+    }
+    LaunchedEffect(c.drawerOpen) { if (!c.drawerOpen) c.clearGridSelection() }
     BackHandler(enabled = panel == null && !c.loadOpen && c.exposureOpen) { c.exposureOpen = false }
+    // 새 필름 만들기: 뒤로 가면 한 단계 전으로(편집 화면은 스스로 처리한다)
+    BackHandler(enabled = c.alert == null && c.maker != null && c.maker != AppController.Maker.EDITOR) {
+        when (c.maker) {
+            AppController.Maker.RESTORE, AppController.Maker.SOURCE -> c.maker = AppController.Maker.MENU
+            else -> c.closeMaker()
+        }
+    }
 
     LaunchedEffect(c.currentFilm) { Ds.liveFilm = c.currentFilm }
 
@@ -72,7 +82,8 @@ fun CameraScreen(
         )
 
         // 페이지가 열리면 뒤의 카메라가 어두워진다(페이지와 같은 스프링으로 따라 움직여서 한 동작처럼 보인다)
-        val pageOpen = base == Panel.Gallery || base == Panel.Settings || viewer != null || base is Panel.Develop || c.loadOpen
+        val pageOpen = base == Panel.Gallery || base == Panel.Settings || viewer != null || base is Panel.Develop || c.loadOpen ||
+            (c.maker != null && c.maker != AppController.Maker.CAPTURE) // 사진을 찍는 동안은 카메라가 그대로 보여야 한다
         val dim by animateFloatAsState(if (pageOpen) 1f else 0f, spring(1f, 380f), label = "dim")
         if (dim > 0.001f) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .45f * dim.coerceIn(0f, 1f))))
 
@@ -83,6 +94,13 @@ fun CameraScreen(
         }
         SlideRight(viewer != null) { (viewer ?: lastViewer[0])?.let { DetailPage(c, it) } }
         SlideUp(c.loadOpen) { FilmLoadModal(c) }
+        // 새 필름 만들기: 메뉴 → (기본 필름 불러오기 | 사진 고르기 → 촬영/불러오기) → 편집
+        SlideUp(c.maker == AppController.Maker.MENU) { FilmMenuModal(c) }
+        SlideUp(c.maker == AppController.Maker.RESTORE) { RestoreFilmModal(c) }
+        SlideUp(c.maker == AppController.Maker.SOURCE) { FilmSourceModal(c) }
+        val lastSource = remember { arrayOfNulls<AppController.EditorSource>(1) }
+        c.editorSource?.let { lastSource[0] = it }
+        SlideRight(c.maker == AppController.Maker.EDITOR) { (c.editorSource ?: lastSource[0])?.let { FilmEditor(c, it) } }
 
         // 알림창: 배경이 어두워지면서 카드가 살짝 커지며 나타난다. 닫힐 때도 내용이 남게 마지막 알림을 기억한다
         val lastAlert = remember { arrayOfNulls<com.example.retrocamera.AlertState>(1) }

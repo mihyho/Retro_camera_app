@@ -62,6 +62,7 @@ fun Film.glow(): Color = Color(when (this) {
     Film.CINE -> 0xFF3FB0B8
     Film.FADED -> 0xFFC9B8A0
     Film.NIGHT -> 0xFFE0584A
+    else -> custom?.accent ?: 0xFFE8B84A // 사용자가 만든 필름은 고른 포인트 색
 })
 
 /** "Helvetica Neue / Apple SD Gothic Neo / Noto Sans KR" 대신 안드로이드 기본 산세리프(Roboto + Noto Sans CJK) */

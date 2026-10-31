@@ -7,7 +7,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.example.retrocamera.data.AppState
+import com.example.retrocamera.data.CustomFilm
 import com.example.retrocamera.data.Film
+import com.example.retrocamera.data.FilmAdjust
 import com.example.retrocamera.data.Mode
 import com.example.retrocamera.data.RollEngine
 import com.example.retrocamera.data.Shot
@@ -231,12 +233,120 @@ class AppController(private val appContext: Context) {
 
     private val luts = HashMap<Film, CubeLut>()
 
-    @Synchronized fun lutFor(film: Film): CubeLut =
-        luts.getOrPut(film) { appContext.assets.open(film.lutAsset).use { CubeLut.parse(it) } }
+    @Synchronized fun lutFor(film: Film): CubeLut = luts.getOrPut(film) {
+        // 사용자가 만든 필름의 LUT는 보정값에서 바로 구워 낸다(파일로 저장하지 않는다)
+        film.custom?.let { d -> FilmLook.bake(d.baseKey?.let { lutFor(Film.fromKey(it)) }, d.adjust) }
+            ?: appContext.assets.open(film.lutAsset).use { CubeLut.parse(it) }
+    }
+
+    // ── 필름 메뉴: 지우기 / 기본 필름 다시 넣기 / 새 필름 만들기 ──
+
+    /** 필름 메뉴(스트립·그리드·필름 넣기)에 보이는 필름. 지운 필름은 빠진다 */
+    val visibleFilms: List<Film> get() = orderedFilms().filter { it.key !in state.hiddenFilms }
+
+    /** 지운 필름까지 포함한 전체 필름을 저장된 순서대로. 순서에 없는 필름(새로 만든 것 등)은 기본 순서로 뒤에 붙는다 */
+    private fun orderedFilms(): List<Film> {
+        val order = state.filmOrder
+        if (order.isEmpty()) return Film.entries
+        return Film.entries.sortedBy { f -> order.indexOf(f.key).let { if (it < 0) Int.MAX_VALUE else it } }
+    }
+
+    // ── 필름 메뉴(그리드)에서 고른 필름: 꾹 눌러 고르고, 지우거나 순서를 바꾼다 ──
+    var gridSelection by mutableStateOf<Set<String>>(emptySet())
+
+    fun toggleGridSelect(film: Film) {
+        gridSelection = if (film.key in gridSelection) gridSelection - film.key else gridSelection + film.key
+    }
+
+    fun clearGridSelection() { gridSelection = emptySet() }
+
+    /** 롤을 장전한 동안은 필름 메뉴를 바꾸지 않는다(true면 막혔다) */
+    private fun filmMenuLocked(): Boolean {
+        if (state.mode == Mode.FILM && state.roll != null) { lockedFilmTapped(); return true }
+        return false
+    }
+
+    fun askDeleteFilm(film: Film) = askDeleteFilms(listOf(film))
+
+    fun askDeleteFilms(films: List<Film>) {
+        if (films.isEmpty() || filmMenuLocked()) return
+        if (visibleFilms.size - films.size < 1) { showToast("마지막 필름은 지울 수 없어요"); return }
+        alert = AlertState(
+            if (films.size == 1) "${films[0].displayName} 필름을 지울까요?" else "필름 ${films.size}개를 지울까요?",
+            "필름 메뉴에서만 빠지고 이미 찍은 사진은 그대로예요. \"기본 필름 불러오기\"로 다시 넣을 수 있어요.",
+            "지우기",
+        ) { deleteFilms(films) }
+    }
+
+    fun deleteFilm(film: Film) = deleteFilms(listOf(film))
+
+    fun deleteFilms(films: List<Film>) {
+        alert = null
+        val shown = visibleFilms
+        val left = shown.filter { it !in films }
+        if (left.isEmpty() || left.size == shown.size) return
+        // 지운 필름이 고른 필름이면 그 자리 가까이의 남은 필름으로
+        val firstGone = shown.indexOfFirst { it in films }
+        val neighbor = left[minOf(firstGone, left.lastIndex)]
+        var next = state.copy(hiddenFilms = state.hiddenFilms + films.map { it.key })
+        if (state.singleFilm in films) next = next.copy(singleFilm = neighbor)
+        if (!tryCommit(next)) return
+        if (pendingFilm in films) pendingFilm = neighbor
+        gridSelection = emptySet()
+        showToast(if (films.size == 1) "${films[0].displayName} 필름을 지웠어요" else "필름 ${films.size}개를 지웠어요")
+    }
+
+    /** 고른 필름 한 개를 보이는 순서에서 앞(-1)이나 뒤(+1)로 한 칸 옮긴다 */
+    fun moveSelectedFilm(dir: Int) {
+        if (filmMenuLocked()) return
+        val key = gridSelection.singleOrNull() ?: return
+        val shown = visibleFilms
+        val i = shown.indexOfFirst { it.key == key }
+        val j = i + dir
+        if (i < 0 || j !in shown.indices) return
+        // 지운 필름까지 포함한 전체 순서에서 이웃한 두 필름의 자리를 맞바꾼다
+        val full = orderedFilms().map { it.key }.toMutableList()
+        val a = full.indexOf(shown[i].key); val b = full.indexOf(shown[j].key)
+        full[a] = shown[j].key; full[b] = shown[i].key
+        tryCommit(state.copy(filmOrder = full))
+    }
+
+    /** "기본 필름 불러오기": 지웠던 기본 필름을 제자리에 다시 넣는다. 이미 있으면 알려 준다 */
+    fun restoreFilm(film: Film) {
+        if (film.key !in state.hiddenFilms) { showToast("필름이 이미 들어있습니다."); return }
+        if (!tryCommit(state.copy(hiddenFilms = state.hiddenFilms - film.key))) return
+        showToast("${film.displayName} 필름을 다시 넣었어요")
+    }
+
+    /** 새 필름 만들기 흐름의 단계(없으면 null) */
+    enum class Maker { MENU, RESTORE, SOURCE, CAPTURE, EDITOR }
+    var maker by mutableStateOf<Maker?>(null)
+    /** 편집할 사진(가로 w, 세로 h, ARGB) */
+    class EditorSource(val px: IntArray, val w: Int, val h: Int)
+    var editorSource by mutableStateOf<EditorSource?>(null)
+    /** MainActivity가 기기에서 사진을 고르는 창을 여는 함수 */
+    var onPickPhoto: (() -> Unit)? = null
+
+    fun openFilmMenu() { alert = null; exposureOpen = false; drawerOpen = false; maker = Maker.MENU }
+    fun closeMaker() { maker = null; editorSource = null }
+    fun openEditor(src: EditorSource) { editorSource = src; maker = Maker.EDITOR }
+
+    /** 만든 필름을 목록 끝에 넣고 바로 고른다 */
+    fun addCustomFilm(name: String, accent: Long, adjust: FilmAdjust): Boolean {
+        val def = CustomFilm("custom_${System.currentTimeMillis()}", name.trim(), accent, null, adjust)
+        val defs = state.customFilms + def
+        Film.setCustom(defs)
+        if (!tryCommit(state.copy(customFilms = defs))) { Film.setCustom(state.customFilms); return false }
+        val film = Film.fromKey(def.key)
+        if (state.mode == Mode.SINGLE) commit(RollEngine.selectSingleFilm(state, film)) else pendingFilm = film
+        closeMaker()
+        showToast("${def.name} 필름을 추가했어요")
+        return true
+    }
 
     /** 프리뷰/촬영에 쓰는 필름. 필름 모드에서 롤이 없으면 첫 필름(디자인 기준)을 보여 준다. */
     val currentFilm: Film
-        get() = if (state.mode == Mode.FILM) state.roll?.film ?: Film.entries.first() else state.singleFilm
+        get() = if (state.mode == Mode.FILM) state.roll?.film ?: visibleFilms.firstOrNull() ?: Film.entries.first() else state.singleFilm
 
     private fun commit(next: AppState) {
         store.save(next) // 저장이 성공한 뒤에만 메모리 상태를 바꾼다

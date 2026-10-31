@@ -56,9 +56,47 @@ class StateStore(private val file: File) {
             put("volumeShutter", s.volumeShutter)
             put("grainOn", s.grainOn)
             put("recordLocation", s.recordLocation)
+            put("customFilms", JSONArray().also { a -> s.customFilms.forEach { a.put(customJson(it)) } })
+            put("hiddenFilms", JSONArray().also { a -> s.hiddenFilms.sorted().forEach { a.put(it) } })
+            put("filmOrder", JSONArray().also { a -> s.filmOrder.forEach { a.put(it) } })
         }
 
-        fun fromJson(o: JSONObject): AppState = AppState(
+        private fun customJson(f: CustomFilm) = JSONObject().apply {
+            put("key", f.key); put("name", f.name); put("accent", f.accent); put("base", f.baseKey ?: JSONObject.NULL)
+            val a = f.adjust
+            put("adjust", JSONObject().apply {
+                put("exposure", a.exposure.toDouble()); put("contrast", a.contrast.toDouble()); put("highlights", a.highlights.toDouble())
+                put("shadows", a.shadows.toDouble()); put("whites", a.whites.toDouble()); put("blacks", a.blacks.toDouble())
+                put("temperature", a.temperature.toDouble()); put("tint", a.tint.toDouble()); put("vibrance", a.vibrance.toDouble())
+                put("saturation", a.saturation.toDouble()); put("texture", a.texture.toDouble()); put("clarity", a.clarity.toDouble())
+                put("dehaze", a.dehaze.toDouble())
+            })
+        }
+
+        private fun customFilms(o: JSONObject): List<CustomFilm> {
+            val a = o.optJSONArray("customFilms") ?: return emptyList() // 옛 상태 파일에는 없다
+            return (0 until a.length()).map { i ->
+                val f = a.getJSONObject(i)
+                val j = f.getJSONObject("adjust")
+                fun v(k: String) = j.optDouble(k, 0.0).toFloat()
+                CustomFilm(
+                    f.getString("key"), f.getString("name"), f.getLong("accent"), if (f.isNull("base")) null else f.getString("base"),
+                    FilmAdjust(
+                        v("exposure"), v("contrast"), v("highlights"), v("shadows"), v("whites"), v("blacks"),
+                        v("temperature"), v("tint"), v("vibrance"), v("saturation"), v("texture"), v("clarity"), v("dehaze"),
+                    ),
+                )
+            }
+        }
+
+        fun fromJson(o: JSONObject): AppState {
+            // 사용자가 만든 필름을 먼저 등록해야 아래에서 필름 키를 풀 수 있다
+            val customs = customFilms(o)
+            Film.setCustom(customs)
+            return parse(o, customs)
+        }
+
+        private fun parse(o: JSONObject, customs: List<CustomFilm>): AppState = AppState(
             mode = Mode.valueOf(o.getString("mode")),
             roll = if (o.isNull("roll")) null else o.getJSONObject("roll").let { r ->
                 Roll(Film.fromKey(r.getString("film")), r.getInt("total"), shots(r.getJSONArray("shots")), r.getLong("start"))
@@ -79,6 +117,9 @@ class StateStore(private val file: File) {
             volumeShutter = o.optBoolean("volumeShutter", true), // 옛 상태 파일에는 없으므로 기본 켬
             grainOn = o.optBoolean("grainOn", true),
             recordLocation = o.optBoolean("recordLocation", true),
+            customFilms = customs,
+            hiddenFilms = o.optJSONArray("hiddenFilms")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() } ?: emptySet(),
+            filmOrder = o.optJSONArray("filmOrder")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
         )
 
         private fun rollJson(r: Roll) = JSONObject().apply {

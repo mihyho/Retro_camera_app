@@ -74,9 +74,10 @@ class MainActivity : ComponentActivity() {
         controller.onExposureChange = { camera?.cameraControl?.setExposureCompensationIndex(it) }
         controller.onFlashChange = { camera?.cameraControl?.enableTorch(it && !controller.lensFront) }
         controller.onRequestLocation = { requestLocation() }
+        controller.onPickPhoto = { pickLauncher.launch("image/*") }
         controller.onStrip = { renderer.setStrip(it) }
         controller.onPreviewRect = { renderer.setPreview(it) }
-        controller.onLiveFilm = { f -> renderer.setLut(controller.lutFor(f)); renderer.setClarity(f.clarity) }
+        controller.onLiveFilm = { f -> renderer.setLut(controller.lutFor(f)); renderer.setClarity(f.clarity); renderer.setTexture(f.texture) }
         controller.onZoomReset = { zoomTarget = 1f; camera?.cameraControl?.setZoomRatio(1f) }
         controller.onRequestPermission = {
             if (controller.perm == AppController.Perm.DENIED && !shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)) {
@@ -93,11 +94,21 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(controller.currentFilm) {
                 renderer.setLut(controller.lutFor(controller.currentFilm))
                 renderer.setClarity(controller.currentFilm.clarity)
+                renderer.setTexture(controller.currentFilm.texture)
             }
-            // 모든 필름의 LUT를 미리 올린다: 필름 그리드와 하단 필름 스트립의 실시간 칩이 같이 쓴다(LUT 읽기는 백그라운드에서)
-            LaunchedEffect(Unit) {
-                val tiles = withContext(Dispatchers.Default) { Film.entries.map { LutRenderer.GridTile(controller.lutFor(it), it.clarity) } }
+            // 모든 필름의 LUT를 미리 올린다: 필름 그리드와 하단 필름 스트립의 실시간 칩이 같이 쓴다(LUT 읽기는 백그라운드에서).
+            // 필름을 새로 만들면 다시 올린다
+            LaunchedEffect(controller.state.customFilms) {
+                val tiles = withContext(Dispatchers.Default) { Film.entries.map { LutRenderer.GridTile(controller.lutFor(it), it.clarity, it.texture) } }
                 renderer.setTiles(tiles)
+            }
+            // 필름 그리드에는 지우지 않은 필름만 보인다
+            // 필름을 만들 사진을 찍는 동안은 필름 색감 없는 원본을 그대로 보여 준다(찍히는 것과 같다)
+            LaunchedEffect(controller.maker) { renderer.lutEnabled = controller.maker != AppController.Maker.CAPTURE }
+            LaunchedEffect(controller.state.hiddenFilms, controller.state.customFilms, controller.state.filmOrder) {
+                // 보이는 순서(사용자가 바꾼 순서)대로 타일 번호를 준다. 끝의 -1은 "+" 칸 자리(UI가 그린다)
+                val all = Film.entries
+                renderer.setGridIndices((controller.visibleFilms.map { all.indexOf(it) } + -1).toIntArray())
             }
             LaunchedEffect(controller.drawerOpen) { renderer.setGridVisible(controller.drawerOpen) }
             CameraScreen(controller, glView, onShutter = ::takePhoto, onZoomBy = ::zoomBy, onZoomStep = ::zoomStep)
@@ -220,6 +231,71 @@ class MainActivity : ComponentActivity() {
         cam.cameraControl.setZoomRatio(zoomTarget)
     }
 
+    // ── 새 필름 만들기: 보정할 사진 받기 ──
+
+    private val pickLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@registerForActivityResult // 고르지 않고 돌아오면 사진 고르기 화면에 그대로 있는다
+        worker.execute {
+            val src = runCatching { decodeForEditor(null) { contentResolver.openInputStream(uri) ?: error("열 수 없음") } }.getOrNull()
+            runOnUiThread { if (src != null) controller.openEditor(src) else controller.showToast("사진을 열지 못했어요") }
+        }
+    }
+
+    /** 지금 찍은 사진(필터·그레인·각인 없는 원본)을 저장하지 않고 편집 화면으로 보낸다 */
+    private fun captureForEditor() {
+        val capture = imageCapture ?: return
+        controller.triggerFlash()
+        capture.takePicture(ContextCompat.getMainExecutor(this), object : ImageCapture.OnImageCapturedCallback() {
+            override fun onCaptureSuccess(image: ImageProxy) {
+                val bytes: ByteArray
+                val rotation: Int
+                try {
+                    val buf = image.planes[0].buffer
+                    bytes = ByteArray(buf.remaining()).also { buf.get(it) }
+                    rotation = image.imageInfo.rotationDegrees
+                } catch (e: Exception) {
+                    controller.showToast("촬영 실패")
+                    return
+                } finally {
+                    image.close()
+                }
+                worker.execute {
+                    val src = runCatching { decodeForEditor(rotation) { java.io.ByteArrayInputStream(bytes) } }.getOrNull()
+                    runOnUiThread { if (src != null) controller.openEditor(src) else controller.showToast("사진을 열지 못했어요") }
+                }
+            }
+
+            override fun onError(exception: ImageCaptureException) {
+                Log.e("RetroCamera", "촬영 실패", exception)
+                controller.showToast("촬영 실패")
+            }
+        })
+    }
+
+    /** 긴 변이 2400px 이하가 되게 줄여 읽고, 똑바로 서게 돌린다. rotation이 null이면 사진 파일의 EXIF 회전을 따른다 */
+    private fun decodeForEditor(rotation: Int?, open: () -> java.io.InputStream): AppController.EditorSource {
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        open().use { android.graphics.BitmapFactory.decodeStream(it, null, bounds) }
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 2400) sample *= 2
+        val raw = open().use { android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }) }
+            ?: error("디코딩 실패")
+        val degrees = rotation ?: open().use { s ->
+            when (android.media.ExifInterface(s).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL)) {
+                android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                else -> 0
+            }
+        }
+        val upright = if (degrees == 0) raw else android.graphics.Bitmap.createBitmap(
+            raw, 0, 0, raw.width, raw.height, android.graphics.Matrix().apply { postRotate(degrees.toFloat()) }, true,
+        )
+        val px = IntArray(upright.width * upright.height)
+        upright.getPixels(px, 0, upright.width, 0, 0, upright.width, upright.height)
+        return AppController.EditorSource(px, upright.width, upright.height)
+    }
+
     private val locationLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
             locationPrefs.edit().putBoolean("askedLocation", true).apply() // 답을 받은 뒤에만 "물어 봤다"로 친다(창이 답 없이 닫히면 다시 묻는다)
@@ -263,6 +339,8 @@ class MainActivity : ComponentActivity() {
     private fun takePhoto() {
         // 패널(현상/사진/설정)이 떠 있으면 셔터는 카메라 화면으로 돌아오기만 한다
         if (controller.perm != AppController.Perm.GRANTED) return
+        // 새 필름을 만들 사진을 찍는 중이면 저장하지 않고 편집 화면으로 간다
+        if (controller.maker == AppController.Maker.CAPTURE) { captureForEditor(); return }
         if (controller.panel != null || controller.drawerOpen || controller.alert != null || controller.loadOpen) {
             controller.panel = null; controller.closeDrawer(); controller.alert = null; controller.loadOpen = false; return
         }

@@ -19,7 +19,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /** Phosphor Light 느낌의 선 아이콘(24 격자). 외부 아이콘 파일 없이 Canvas로 그린다. */
-enum class Ico { BOLT, EXPOSURE, FLIP, GEAR, IMAGES, CIRCLES, LOCK, CHECK, EXPORT, TRASH, CHEVRON_LEFT, CAMERA, PROHIBIT }
+enum class Ico { BOLT, EXPOSURE, FLIP, GEAR, IMAGES, CIRCLES, LOCK, CHECK, EXPORT, TRASH, CHEVRON_LEFT, CAMERA, PROHIBIT, PLUS, UNDO, REDO, COMPARE, CHEVRON_DOWN }
 
 @Composable
 fun Icon(kind: Ico, size: Dp, color: Color, modifier: Modifier = Modifier, fill: Boolean = false) {
@@ -91,6 +91,13 @@ fun Icon(kind: Ico, size: Dp, color: Color, modifier: Modifier = Modifier, fill:
                 poly(8f, 6.5f, 9.5f, 4f, 14.5f, 4f, 16f, 6.5f)
             }
             Ico.PROHIBIT -> { circle(12f, 12f, 9f); line(5.7f, 5.7f, 18.3f, 18.3f) }
+            Ico.PLUS -> { line(12f, 5f, 12f, 19f); line(5f, 12f, 19f, 12f) }
+            // 되돌리기/다시: 반원 화살표
+            Ico.UNDO -> { poly(9f, 5f, 4.5f, 9.5f, 9f, 14f); val p = Path().apply { moveTo(4.5f * k, 9.5f * k); lineTo(14f * k, 9.5f * k); cubicTo(18.5f * k, 9.5f * k, 19.5f * k, 18f * k, 14f * k, 18f * k); lineTo(9f * k, 18f * k) }; drawPath(p, color, style = st) }
+            Ico.REDO -> { poly(15f, 5f, 19.5f, 9.5f, 15f, 14f); val p = Path().apply { moveTo(19.5f * k, 9.5f * k); lineTo(10f * k, 9.5f * k); cubicTo(5.5f * k, 9.5f * k, 4.5f * k, 18f * k, 10f * k, 18f * k); lineTo(15f * k, 18f * k) }; drawPath(p, color, style = st) }
+            // 원본과 비교: 둘로 나뉜 사각형
+            Ico.COMPARE -> { rrect(3.5f, 5f, 17f, 14f, 2f); line(12f, 5f, 12f, 19f); poly(12f, 5f, 20.5f, 5f, 20.5f, 19f, 12f, 19f, close = true, filled = true) }
+            Ico.CHEVRON_DOWN -> poly(5f, 9f, 12f, 16f, 19f, 9f)
         }
     }
 }

@@ -235,7 +235,7 @@ private fun PhotoBack(shot: Shot, modifier: Modifier) {
         BackField("필름") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(10.dp).clip(CircleShape).background(f.glow()))
-                Text("${f.displayName}  ISO ${f.iso}", Ds.Ink, t17, Modifier.padding(start = 10.dp))
+                Text(if (f.iso > 0) "${f.displayName}  ISO ${f.iso}" else f.displayName, Ds.Ink, t17, Modifier.padding(start = 10.dp))
             }
             Text(f.description, Ds.Sub, t13, Modifier.padding(top = 4.dp))
         }
@@ -331,7 +331,7 @@ fun FilmLoadModal(c: AppController) {
             }
             SectionHeader("필름")
             Group {
-                Film.entries.forEachIndexed { i, f ->
+                c.visibleFilms.forEachIndexed { i, f ->
                     Column(Modifier.fillMaxWidth().tap { c.pendingFilm = f }) {
                         Row(Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(10.dp).clip(CircleShape).background(Color(f.accent)))
@@ -339,10 +339,10 @@ fun FilmLoadModal(c: AppController) {
                                 Text(f.displayName, Ds.Ink, t17, softWrap = false)
                                 Text(f.description, Ds.Sub, t12, softWrap = false)
                             }
-                            Text("ISO ${f.iso}", Ds.Sub, t13)
+                            if (f.iso > 0) Text("ISO ${f.iso}", Ds.Sub, t13)
                             Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) { if (chosen == f) Icon(Ico.CHECK, 20.dp, Ds.AccentInk) }
                         }
-                        if (i != Film.entries.lastIndex) Hairline()
+                        if (i != c.visibleFilms.lastIndex) Hairline()
                     }
                 }
             }

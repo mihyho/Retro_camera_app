@@ -45,7 +45,21 @@ class LutRenderer(
         glView.requestRender()
     }
     /** 필름 그리드: 같은 실시간 영상을 필름 수만큼 타일로 나눠 각자의 LUT로 그린다. null이면 한 화면 모드 */
-    class GridTile(val lut: CubeLut, val clarity: Float)
+    class GridTile(val lut: CubeLut, val clarity: Float, val texture: Float = 0f)
+
+    /** 텍스처(미세한 질감 강조). 필름을 바꿀 때 함께 바꾼다 */
+    @Volatile private var texture = 0f
+    fun setTexture(value: Float) {
+        texture = value
+        glView.requestRender()
+    }
+
+    /** 필름 그리드에 보일 타일(gridTiles의 번호). null이면 전부. 지운 필름은 그리드에서도 빠진다 */
+    @Volatile private var gridIndices: IntArray? = null
+    fun setGridIndices(indices: IntArray?) {
+        gridIndices = indices
+        glView.requestRender()
+    }
     @Volatile private var pendingGrid: List<GridTile>? = null
     @Volatile private var gridOn = false
     private var gridTiles: List<GridTile> = emptyList()
@@ -201,20 +215,25 @@ class LutRenderer(
         val py = viewH - ((pr?.get(1) ?: 0) + ph) // GL 뷰포트는 왼쪽 아래가 원점
         if (pw > 0 && ph > 0) {
             if (gridOn && gridTiles.isNotEmpty() && gridTex.size == gridTiles.size) {
-                val rows = (gridTiles.size + gridCols - 1) / gridCols
-                val tw = pw / gridCols; val th = ph / rows
-                gridTiles.forEachIndexed { i, t ->
-                    val x = px + (i % gridCols) * tw
-                    val y = py + ph - (i / gridCols + 1) * th
-                    drawTile(x, y, tw, th, gridTex[i], t.lut.size, t.clarity, true)
+                // 번호가 -1이면 그리지 않는 빈 칸(UI의 "+" 칸 자리)이지만 배치에는 센다
+                val order = gridIndices?.toList() ?: gridTiles.indices.toList()
+                val rows = (order.size + gridCols - 1) / gridCols
+                val tw = pw / gridCols; val th = ph / maxOf(1, rows)
+                order.forEachIndexed { n, i ->
+                    if (i !in gridTiles.indices) return@forEachIndexed
+                    val t = gridTiles[i]
+                    val x = px + (n % gridCols) * tw
+                    val y = py + ph - (n / gridCols + 1) * th
+                    drawTile(x, y, tw, th, gridTex[i], t.lut.size, t.clarity, true, texture = t.texture)
                 }
             } else {
-                drawTile(px, py, pw, ph, lutTex, lut.size, clarity, lutEnabled, 1f, (pr?.getOrNull(4) ?: 0).toFloat())
+                drawTile(px, py, pw, ph, lutTex, lut.size, clarity, lutEnabled, 1f, (pr?.getOrNull(4) ?: 0).toFloat(), texture = texture)
             }
         }
 
         val sr = stripRects
-        if (sr != null && gridTiles.isNotEmpty() && gridTex.size == gridTiles.size) {
+        // 스트립이 아는 필름 수와 올라간 타일 수가 다르면(필름을 막 만든 순간) 이번 프레임은 건너뛴다
+        if (sr != null && gridTiles.isNotEmpty() && gridTex.size == gridTiles.size && sr.size == gridTiles.size * 8 + 4) {
             // 배열 끝의 4개는 스트립 영역 [왼쪽, 위, 오른쪽, 아래]: 칩이 스트립 밖(프리뷰 위)으로 나가 그려지지 않게 자른다
             val ci = gridTiles.size * 8
             if (sr.size >= ci + 4) {
@@ -230,7 +249,7 @@ class LutRenderer(
                 if (s < 2 || x + s < 0 || x > viewW) continue
                 drawTile(
                     x, viewH - (sr[o + 1].toInt() + s), s, s, gridTex[i], gridTiles[i].lut.size, gridTiles[i].clarity, true, sr[o + 3], s * 0.29f,
-                    sr[o + 4], sr[o + 5], sr[o + 6], sr[o + 7],
+                    sr[o + 4], sr[o + 5], sr[o + 6], sr[o + 7], gridTiles[i].texture,
                 )
             }
             GLES30.glDisable(GLES30.GL_SCISSOR_TEST)
@@ -239,7 +258,7 @@ class LutRenderer(
 
     /** 뷰포트 한 칸에 영상을 중앙 크롭으로 그린다. round>0이면 모서리를 둥글게(바깥은 그리지 않음), alpha<1이면 바탕색 쪽으로 흐리게 */
     private fun drawTile(x: Int, y: Int, w: Int, h: Int, tex: Int, lutSize: Int, clarity: Float, lutOn: Boolean, alpha: Float = 1f, round: Float = 0f,
-        ringW: Float = 0f, ringR: Float = 0f, ringG: Float = 0f, ringB: Float = 0f,
+        ringW: Float = 0f, ringR: Float = 0f, ringG: Float = 0f, ringB: Float = 0f, texture: Float = 0f,
     ) {
         GLES30.glViewport(x, y, w, h)
         // 화면 uv(0..1) -> 중앙 크롭 -> SurfaceTexture 변환.
@@ -274,6 +293,7 @@ class LutRenderer(
         GLES30.glUniform3f(GLES30.glGetUniformLocation(program, "uRing"), ringR, ringG, ringB)
         GLES30.glUniform2f(GLES30.glGetUniformLocation(program, "uHalf"), w / 2f, h / 2f)
         GLES30.glUniform3f(GLES30.glGetUniformLocation(program, "uBg"), BG_R, BG_G, BG_B)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uTexture"), texture)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uClarity"), clarity)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uClaritySigma"), Clarity.sigma(bufferW))
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
@@ -356,6 +376,7 @@ uniform float uLutOn;
 uniform vec2 uTexel;
 uniform float uClarity;
 uniform float uClaritySigma;
+uniform float uTexture;
 uniform float uAlpha;
 uniform float uRound;
 uniform float uRingW;
@@ -400,6 +421,8 @@ void main() {
         float w = 1.0 - e * e * (3.0 - 2.0 * e);
         c = clamp(c0 + (blur - c0) * (-uClarity) * w, 0.0, 1.0);
     }
+    // 텍스처: 원본과 아주 작게 흐린 것의 차이를 더하거나 뺀다(촬영본 Texture.kt 와 같은 수식)
+    if (uTexture != 0.0) c = clamp(c + (c0 - base) * uTexture, 0.0, 1.0);
     vec3 gb = grade(base);
     vec3 dIn = c - base;
     vec3 graded = gb + clamp(grade(c) - gb, -abs(dIn), abs(dIn));
