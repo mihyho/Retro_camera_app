@@ -39,18 +39,8 @@ class StateStore(private val file: File) {
 
         fun toJson(s: AppState): JSONObject = JSONObject().apply {
             put("version", VERSION)
-            put("mode", s.mode.name)
-            put("roll", s.roll?.let { rollJson(it) } ?: JSONObject.NULL)
-            put("singleFilm", s.singleFilm.key)
-            put("singleShots", shotsJson(s.singleShots))
-            put("devRolls", JSONArray().also { a ->
-                s.devRolls.forEach { r ->
-                    a.put(JSONObject().apply {
-                        put("film", r.film.key); put("total", r.total); put("start", r.start)
-                        put("end", r.end); put("exported", r.exported); put("shots", shotsJson(r.shots))
-                    })
-                }
-            })
+            put("film", s.film.key)
+            put("shots", shotsJson(s.shots))
             put("grid", s.grid)
             put("stamp", s.stamp)
             put("volumeShutter", s.volumeShutter)
@@ -123,22 +113,13 @@ class StateStore(private val file: File) {
             return parse(o, customs)
         }
 
+        /**
+         * 필름 롤(24/36장) 모드가 있던 옛 상태 파일도 읽는다: 단일 촬영과 갤러리로 내보낸 롤의 사진을 한 목록으로 합치고,
+         * 롤 모드의 진행 중인 롤과 아직 내보내지 못한 사진(앱 전용 폴더에만 있던 것)은 가져오지 않는다.
+         */
         private fun parse(o: JSONObject, customs: List<CustomFilm>): AppState = AppState(
-            mode = Mode.valueOf(o.getString("mode")),
-            roll = if (o.isNull("roll")) null else o.getJSONObject("roll").let { r ->
-                Roll(Film.fromKey(r.getString("film")), r.getInt("total"), shots(r.getJSONArray("shots")), r.getLong("start"))
-            },
-            singleFilm = Film.fromKey(o.getString("singleFilm")),
-            singleShots = shots(o.getJSONArray("singleShots")),
-            devRolls = o.getJSONArray("devRolls").let { a ->
-                (0 until a.length()).map { i ->
-                    val r = a.getJSONObject(i)
-                    DevelopedRoll(
-                        Film.fromKey(r.getString("film")), r.getInt("total"), shots(r.getJSONArray("shots")),
-                        r.getLong("start"), r.getLong("end"), r.getBoolean("exported"),
-                    )
-                }
-            },
+            film = Film.fromKey(if (o.has("film")) o.getString("film") else o.getString("singleFilm")),
+            shots = if (o.has("shots")) shots(o.getJSONArray("shots")) else legacyShots(o),
             grid = o.getBoolean("grid"),
             stamp = o.getBoolean("stamp"),
             volumeShutter = o.optBoolean("volumeShutter", true), // 옛 상태 파일에는 없으므로 기본 켬
@@ -152,27 +133,32 @@ class StateStore(private val file: File) {
             filmOrder = o.optJSONArray("filmOrder")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
         )
 
-        private fun rollJson(r: Roll) = JSONObject().apply {
-            put("film", r.film.key); put("total", r.total); put("start", r.start); put("shots", shotsJson(r.shots))
-        }
-
         private fun shotsJson(list: List<Shot>) = JSONArray().also { a ->
             list.forEach { s ->
                 a.put(JSONObject().apply {
-                    put("film", s.film.key); put("file", s.file); put("takenAt", s.takenAt)
-                    put("uri", s.uri ?: JSONObject.NULL)
+                    put("film", s.film.key); put("uri", s.uri); put("takenAt", s.takenAt)
                     if (s.grainAmount != null) { put("grainAmount", s.grainAmount.toDouble()); put("grainSize", (s.grainSize ?: 1f).toDouble()) }
                     if (s.lat != null && s.lon != null) { put("lat", s.lat); put("lon", s.lon) } // 촬영 위치(없으면 생략). 사진 파일(EXIF)에는 넣지 않는다
                 })
             }
         }
 
-        private fun shots(a: JSONArray) = (0 until a.length()).map { i ->
+        private fun shots(a: JSONArray): List<Shot> = (0 until a.length()).mapNotNull { i ->
             val s = a.getJSONObject(i)
-            Shot(Film.fromKey(s.getString("film")), s.getString("file"), s.getLong("takenAt"),
-                if (s.isNull("uri")) null else s.getString("uri"),
+            val uri = if (s.isNull("uri")) "" else s.getString("uri")
+            if (uri.isEmpty()) null // 갤러리에 없는 사진(옛 롤 모드의 앱 전용 파일)은 보여 줄 수 없다
+            else Shot(Film.fromKey(s.getString("film")), uri, s.getLong("takenAt"),
                 if (s.has("lat")) s.getDouble("lat") else null, if (s.has("lon")) s.getDouble("lon") else null,
                 if (s.has("grainAmount")) s.getDouble("grainAmount").toFloat() else null, if (s.has("grainSize")) s.getDouble("grainSize").toFloat() else null)
+        }
+
+        private fun legacyShots(o: JSONObject): List<Shot> {
+            val all = ArrayList<Shot>()
+            o.optJSONArray("singleShots")?.let { all += shots(it) }
+            o.optJSONArray("devRolls")?.let { a ->
+                for (i in 0 until a.length()) a.getJSONObject(i).optJSONArray("shots")?.let { all += shots(it) }
+            }
+            return all.sortedByDescending { it.takenAt }
         }
     }
 }

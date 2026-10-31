@@ -10,8 +10,7 @@ import com.example.retrocamera.data.AppState
 import com.example.retrocamera.data.CustomFilm
 import com.example.retrocamera.data.Film
 import com.example.retrocamera.data.FilmAdjust
-import com.example.retrocamera.data.Mode
-import com.example.retrocamera.data.RollEngine
+import com.example.retrocamera.data.AppOps
 import com.example.retrocamera.data.Shot
 import com.example.retrocamera.data.StateStore
 import com.example.retrocamera.data.findInGroups
@@ -29,8 +28,6 @@ data class ToastMsg(val id: Int, val text: String)
 
 /** 카메라 화면 위에 열리는 페이지/모달 */
 sealed interface Panel {
-    /** 현상 완료 모달 */
-    data class Develop(val rollStart: Long) : Panel
     /** 사진 보관함 페이지 */
     data object Gallery : Panel
     data object Settings : Panel
@@ -41,13 +38,13 @@ sealed interface Panel {
 /** iOS 7 스타일 알림창. 오른쪽 버튼이 ok(파괴 동작)이다 */
 data class AlertState(val title: String, val msg: String, val ok: String, val onOk: () -> Unit)
 
-/** 날짜 각인 형식: '26 10 07 */
+/** 날짜 각인 형식: 26. 10. 07. */
 fun formatStamp(ms: Long): String {
     val c = Calendar.getInstance().apply { timeInMillis = ms }
-    return "'%02d %02d %02d".format(c.get(Calendar.YEAR) % 100, c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH))
+    return "%02d. %02d. %02d.".format(c.get(Calendar.YEAR) % 100, c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH))
 }
 
-/** 앱 상태(롤/모드/설정)를 들고 있고, 바뀔 때마다 즉시 디스크에 저장한다. UI 전용 상태(토스트 등)는 저장하지 않는다. */
+/** 앱 상태(필름/사진/설정)를 들고 있고, 바뀔 때마다 즉시 디스크에 저장한다. UI 전용 상태(토스트 등)는 저장하지 않는다. */
 class AppController(private val appContext: Context) {
 
     private val store = StateStore(File(appContext.filesDir, "state.json"))
@@ -59,8 +56,6 @@ class AppController(private val appContext: Context) {
         private set
     private var toastSeq = 0
 
-    var pendingFilm by mutableStateOf<Film?>(null)
-    var pendingLength by mutableIntStateOf(24)
     var flashTrigger by mutableIntStateOf(0)
         private set
     /** 필름 그리드(실시간 비교)가 열려 있는지 */
@@ -68,36 +63,20 @@ class AppController(private val appContext: Context) {
         private set
     var panel by mutableStateOf<Panel?>(null)
 
-    /** 필름 넣기 모달 */
-    var loadOpen by mutableStateOf(false)
-    fun openLoad() { alert = null; exposureOpen = false; drawerOpen = false; pendingFilm = pendingFilm ?: state.singleFilm; loadOpen = true }
-
     var alert by mutableStateOf<AlertState?>(null)
-
-    fun askDiscard() {
-        val roll = state.roll ?: return
-        alert = AlertState(
-            "필름을 버릴까요?",
-            if (roll.shots.isEmpty()) "아직 찍은 사진이 없어요. ${roll.film.displayName} 필름을 빼내고 새로 고를 수 있어요."
-            else "${roll.film.displayName} 롤에 찍은 ${roll.shots.size}장의 사진이 모두 삭제되고 되돌릴 수 없어요. 필름 잠금이 풀려요.",
-            "버리기",
-        ) { discardRoll() }
-    }
 
     fun askDeletePhoto(shot: Shot) {
         alert = AlertState("사진을 삭제할까요?", "이 사진이 기기에서 삭제되고 되돌릴 수 없어요.", "삭제") { deleteFromViewer(shot) }
     }
 
     fun askWipe() {
-        alert = AlertState("모두 지울까요?", "진행 중인 롤과 앱 보관함의 모든 사진이 삭제되고 되돌릴 수 없어요.", "지우기") { wipeAll() }
+        alert = AlertState("모두 지울까요?", "앱 보관함의 모든 사진이 삭제되고 되돌릴 수 없어요.", "지우기") { wipeAll() }
     }
 
     /** 사진 한 장 삭제: 상태를 먼저 바꾸고(앱이 죽어도 지워진 사진이 목록에 남지 않게) 실제 파일은 뒤에 지운다. true = 지웠다 */
     fun deletePhoto(shot: Shot): Boolean {
         alert = null
-        val next = RollEngine.deleteShot(state, shot)
-        if (next == state) { showToast("아직 갤러리로 내보내는 중이라 지울 수 없어요"); return false }
-        if (!tryCommit(next)) return false
+        if (!tryCommit(AppOps.deleteShot(state, shot))) return false
         deleteFiles(listOf(shot))
         showToast("사진을 삭제했어요")
         return true
@@ -107,29 +86,19 @@ class AppController(private val appContext: Context) {
         alert = AlertState("사진 ${shots.size}장을 삭제할까요?", "선택한 사진이 기기에서 삭제되고 되돌릴 수 없어요.", "삭제") { deletePhotos(shots); onDone() }
     }
 
-    /** 여러 장 삭제: 상태를 한 번에 바꿔 저장한 뒤 파일을 지운다. 갤러리로 내보내는 중인 롤의 사진은 건너뛴다 */
+    /** 여러 장 삭제: 상태를 한 번에 바꿔 저장한 뒤 파일을 지운다 */
     fun deletePhotos(shots: List<Shot>) {
         alert = null
-        var next = state
-        val removed = ArrayList<Shot>()
-        for (shot in shots) {
-            val n = RollEngine.deleteShot(next, shot)
-            if (n != next) { next = n; removed += shot }
-        }
-        if (removed.isEmpty()) { showToast("아직 갤러리로 내보내는 중이라 지울 수 없어요"); return }
+        val next = shots.fold(state) { s, shot -> AppOps.deleteShot(s, shot) }
         if (!tryCommit(next)) return
-        deleteFiles(removed)
-        val skipped = shots.size - removed.size
-        showToast(if (skipped == 0) "사진 ${removed.size}장을 삭제했어요" else "${removed.size}장을 삭제했어요 · ${skipped}장은 갤러리로 내보내는 중이라 남겨 뒀어요")
+        deleteFiles(shots)
+        showToast("사진 ${shots.size}장을 삭제했어요")
     }
 
     private fun deleteFiles(shots: List<Shot>) {
         scope.launch(Dispatchers.IO) {
             shots.forEach { shot ->
-                runCatching {
-                    if (!shot.uri.isNullOrEmpty()) appContext.contentResolver.delete(android.net.Uri.parse(shot.uri), null, null)
-                    else File(appContext.filesDir, shot.file).delete()
-                }
+                runCatching { appContext.contentResolver.delete(android.net.Uri.parse(shot.uri), null, null) }
             }
         }
     }
@@ -139,7 +108,7 @@ class AppController(private val appContext: Context) {
         val v = panel as? Panel.Viewer
         val (group, i) = findInGroups(libraryGroups(state), shot) ?: return deletePhoto(shot).let {}
         val neighbor = group.shots.getOrNull(i + 1) ?: group.shots.getOrNull(i - 1)
-        if (deletePhoto(shot)) panel = if (neighbor != null) Panel.Viewer(neighbor, v?.back) else v?.back?.takeIf { it !is Panel.Develop }
+        if (deletePhoto(shot)) panel = if (neighbor != null) Panel.Viewer(neighbor, v?.back) else v?.back
     }
 
     /** 카메라 확대 상태(실제 카메라가 알려 준 값). 확대를 못 하는 카메라면 최대 배율이 1 */
@@ -204,7 +173,7 @@ class AppController(private val appContext: Context) {
 
     fun toggleExposure() {
         if (exposureOpen) { exposureOpen = false; return }
-        if (panel != null || drawerOpen || alert != null || loadOpen) return // 촬영 화면에서만
+        if (panel != null || drawerOpen || alert != null) return // 촬영 화면에서만
         if (exposureRange.first == exposureRange.last) { showToast("이 카메라는 노출 조정을 지원하지 않아요"); return }
         exposureOpen = true
     }
@@ -229,7 +198,6 @@ class AppController(private val appContext: Context) {
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val exporting = HashSet<Long>()
 
     private val luts = HashMap<Film, CubeLut>()
 
@@ -260,17 +228,11 @@ class AppController(private val appContext: Context) {
 
     fun clearGridSelection() { gridSelection = emptySet() }
 
-    /** 롤을 장전한 동안은 필름 메뉴를 바꾸지 않는다(true면 막혔다) */
-    private fun filmMenuLocked(): Boolean {
-        if (state.mode == Mode.FILM && state.roll != null) { lockedFilmTapped(); return true }
-        return false
-    }
-
     fun askArchiveFilm(film: Film) = askArchiveFilms(listOf(film))
 
     /** 필름을 필름 메뉴에서 빼서 보관함에 넣는다. 지우는 게 아니라 보관이라 보관함에서 언제든 다시 불러올 수 있다 */
     fun askArchiveFilms(films: List<Film>) {
-        if (films.isEmpty() || filmMenuLocked()) return
+        if (films.isEmpty()) return
         if (visibleFilms.size - films.size < 1) { showToast("마지막 필름은 보관할 수 없어요"); return }
         alert = AlertState(
             if (films.size == 1) "${films[0].displayName} 필름을 보관할까요?" else "필름 ${films.size}개를 보관할까요?",
@@ -288,16 +250,14 @@ class AppController(private val appContext: Context) {
         val firstGone = shown.indexOfFirst { it in films }
         val neighbor = left[minOf(firstGone, left.lastIndex)]
         var next = state.copy(hiddenFilms = state.hiddenFilms + films.map { it.key })
-        if (state.singleFilm in films) next = next.copy(singleFilm = neighbor)
+        if (state.film in films) next = next.copy(film = neighbor)
         if (!tryCommit(next)) return
-        if (pendingFilm in films) pendingFilm = neighbor
         gridSelection = emptySet()
         showToast(if (films.size == 1) "${films[0].displayName} 필름을 보관했어요" else "필름 ${films.size}개를 보관했어요")
     }
 
     /** 고른 필름 한 개를 보이는 순서에서 앞(-1)이나 뒤(+1)로 한 칸 옮긴다 */
     fun moveSelectedFilm(dir: Int) {
-        if (filmMenuLocked()) return
         val key = gridSelection.singleOrNull() ?: return
         val shown = visibleFilms
         val i = shown.indexOfFirst { it.key == key }
@@ -357,15 +317,14 @@ class AppController(private val appContext: Context) {
         Film.setCustom(defs)
         if (!tryCommit(state.copy(customFilms = defs))) { Film.setCustom(state.customFilms); return false }
         val film = Film.fromKey(def.key)
-        if (state.mode == Mode.SINGLE) commit(RollEngine.selectSingleFilm(state, film)) else pendingFilm = film
+        commit(AppOps.selectFilm(state, film))
         closeMaker()
         showToast("${def.name} 필름을 추가했어요")
         return true
     }
 
-    /** 프리뷰/촬영에 쓰는 필름. 필름 모드에서 롤이 없으면 첫 필름(디자인 기준)을 보여 준다. */
-    val currentFilm: Film
-        get() = if (state.mode == Mode.FILM) state.roll?.film ?: visibleFilms.firstOrNull() ?: Film.entries.first() else state.singleFilm
+    /** 프리뷰/촬영에 쓰는 필름 */
+    val currentFilm: Film get() = state.film
 
     private fun commit(next: AppState) {
         store.save(next) // 저장이 성공한 뒤에만 메모리 상태를 바꾼다
@@ -396,124 +355,34 @@ class AppController(private val appContext: Context) {
         drawerOpen = false
     }
 
-    /** 서랍에서 필름을 뽑아 끼운다. 단일 모드는 바로 교체, 필름 모드는 장전할 필름으로 고른다. */
+    /** 필름을 고른다 */
     fun takeFilm(film: Film) {
-        if (state.mode == Mode.SINGLE) commit(RollEngine.selectSingleFilm(state, film)) else pendingFilm = film
+        commit(AppOps.selectFilm(state, film))
         drawerOpen = false
     }
 
-    /** 십자키 좌우: 다음/이전 필름으로. 롤이 장전돼 있으면 잠금 안내만 한다 */
+    /** 십자키 좌우: 다음/이전 필름으로 */
     fun cycleFilm(step: Int) {
-        val next = RollEngine.nextFilm(state, pendingFilm, step)
-        if (next == null) { lockedFilmTapped(); return }
+        val next = AppOps.nextFilm(state, step)
         takeFilm(next)
         showToast(next.displayName)
-    }
-
-    /** 롤이 장전된 채 다른 필름을 누른 경우 */
-    fun lockedFilmTapped() {
-        val r = state.roll ?: return
-        showToast("롤을 다 찍어야 바꿀 수 있어요 · 남은 ${r.remaining}장")
     }
 
     fun triggerFlash() {
         flashTrigger++
     }
 
-    fun setMode(mode: Mode) {
-        val s = state
-        if (s.mode == mode) return
-        commit(RollEngine.setMode(s, mode))
-        showToast(
-            when {
-                mode == Mode.SINGLE -> "단일 촬영 · 필름 롤은 그대로 멈춰 있어요"
-                s.roll != null -> "${s.roll.film.displayName} 롤로 돌아왔어요 · 남은 ${s.roll.remaining}장"
-                else -> "필름 모드 · 필름을 넣어 주세요"
-            },
-        )
-    }
-
-    fun loadPendingRoll() {
-        val film = pendingFilm ?: return
-        commit(RollEngine.setMode(RollEngine.loadRoll(state, film, pendingLength, System.currentTimeMillis()), Mode.FILM))
-        pendingFilm = null
-        loadOpen = false
-        showToast("${film.displayName} ${state.roll!!.total}장 장전됨")
-    }
-
-    /** 사진 파일이 저장된 뒤에 호출한다(저장 성공 -> 카운트 감소 순서). */
-    fun onPhotoSaved(saved: SavedPhoto, mode: Mode, film: Film, rollStart: Long? = null, lat: Double? = null, lon: Double? = null, grainAmount: Float? = null, grainSize: Float? = null) {
-        val now = System.currentTimeMillis()
-        if (mode == Mode.FILM) {
-            // 찍는 동안 롤을 버렸거나(버린 뒤 새 롤을 넣은 경우 포함) 롤이 바뀌었으면 이 사진은 새 롤에 섞이지 않게 지운다
-            if (state.roll == null || (rollStart != null && state.roll?.start != rollStart)) {
-                saved.file?.let { f -> scope.launch(Dispatchers.IO) { File(appContext.filesDir, f).delete() } }
-                return
-            }
-            val (next, finished) = RollEngine.recordFilmShot(state, Shot(film, saved.file!!, now, null, lat, lon, grainAmount, grainSize), now)
-            if (!tryCommit(next)) {
-                scope.launch(Dispatchers.IO) { File(appContext.filesDir, saved.file).delete() }
-                return
-            }
-            if (finished) {
-                val rollStart = next.devRolls.first().start
-                exportPending() // 갤러리로 내보내기(백그라운드)
-                scope.launch {
-                    delay(650) // 마지막 셔터 직후 잠깐 뒤에 현상 화면으로
-                    panel = Panel.Develop(rollStart)
-                }
-            }
-        } else {
-            if (!tryCommit(RollEngine.recordSingleShot(state, Shot(film, saved.uri!!, now, saved.uri, lat, lon, grainAmount, grainSize)))) {
-                scope.launch(Dispatchers.IO) { runCatching { appContext.contentResolver.delete(android.net.Uri.parse(saved.uri), null, null) } }
-            }
+    /** 사진이 갤러리에 저장된 뒤에 호출한다 */
+    fun onPhotoSaved(uri: String, film: Film, lat: Double? = null, lon: Double? = null, grainAmount: Float? = null, grainSize: Float? = null) {
+        val shot = Shot(film, uri, System.currentTimeMillis(), lat, lon, grainAmount, grainSize)
+        if (!tryCommit(AppOps.recordShot(state, shot))) {
+            scope.launch(Dispatchers.IO) { runCatching { appContext.contentResolver.delete(android.net.Uri.parse(uri), null, null) } }
         }
     }
 
-    /**
-     * 다 찍은 롤을 갤러리로 내보낸다. 앱 시작 시에도 호출되어, 내보내기 도중 앱이 죽었던 롤을 이어서 처리한다.
-     * 전부 성공해야 exported=true로 기록하고 비공개 원본을 지운다.
-     */
-    fun exportPending() {
-        for (roll in RollEngine.pendingExports(state)) {
-            if (!exporting.add(roll.start)) continue
-            scope.launch {
-                val result = withContext(Dispatchers.IO) { runCatching { RollExporter.export(appContext, roll) } }
-                result.onSuccess { uris ->
-                    commit(RollEngine.markExported(state, roll.start, uris))
-                    withContext(Dispatchers.IO) { RollExporter.deletePrivateFiles(appContext, roll) }
-                }
-                result.onFailure { showToast("사진을 갤러리로 옮기지 못했어요 · 다음에 다시 시도해요") }
-                exporting.remove(roll.start)
-            }
-        }
-    }
-
-    /**
-     * 필름 버리기: 진행 중인 롤을 포기하고 초기화한다(찍은 사진은 모두 삭제, 되돌릴 수 없음).
-     * 롤 상태를 먼저 저장해서 지우고, 파일은 그 뒤에 지운다 - 삭제 도중 앱이 죽어도 롤이 되살아나지 않고,
-     * 남은 파일은 다음 실행 때 cleanOrphanFiles()가 정리한다. 단일 촬영/현상된 롤/설정은 건드리지 않는다.
-     */
-    fun discardRoll() {
-        alert = null
-        val roll = state.roll ?: return
-        val files = roll.shots.map { it.file }
-        val name = roll.film.displayName
-        commit(RollEngine.discardRoll(state))
-        pendingFilm = null
-        panel = null
-        scope.launch(Dispatchers.IO) { files.forEach { File(appContext.filesDir, it).delete() } }
-        showToast("$name 필름을 버렸어요 · 새 필름을 골라 넣을 수 있어요")
-    }
-
-    /** 상태가 참조하지 않는 비공개 사진(버리는 도중 앱이 죽어 남은 파일 등)을 지운다. 앱 시작 시 호출. */
-    fun cleanOrphanFiles() {
-        val referenced = RollEngine.referencedPrivateFiles(state)
-        scope.launch(Dispatchers.IO) {
-            File(appContext.filesDir, "rolls/pending").listFiles()?.forEach {
-                if ("rolls/pending/${it.name}" !in referenced) it.delete()
-            }
-        }
+    /** 필름 롤 모드가 있던 시절에 앱 전용 폴더에 남은 사진 파일을 지운다. 앱 시작 시 호출. */
+    fun removeLegacyRollFiles() {
+        scope.launch(Dispatchers.IO) { File(appContext.filesDir, "rolls").deleteRecursively() }
     }
 
     fun stampText(): String = formatStamp(System.currentTimeMillis())
@@ -533,12 +402,12 @@ class AppController(private val appContext: Context) {
         panel = v.back
     }
 
-    fun setGrid(v: Boolean) = commit(RollEngine.setGrid(state, v))
-    fun setStamp(v: Boolean) = commit(RollEngine.setStamp(state, v))
-    fun setVolumeShutter(v: Boolean) = commit(RollEngine.setVolumeShutter(state, v))
-    fun setGrain(v: Boolean) = commit(RollEngine.setGrain(state, v))
+    fun setGrid(v: Boolean) = commit(AppOps.setGrid(state, v))
+    fun setStamp(v: Boolean) = commit(AppOps.setStamp(state, v))
+    fun setVolumeShutter(v: Boolean) = commit(AppOps.setVolumeShutter(state, v))
+    fun setGrain(v: Boolean) = commit(AppOps.setGrain(state, v))
     fun setGrainLook(amount: Float = state.grainAmount, size: Float = state.grainSize) =
-        commit(RollEngine.setGrainLook(state, amount, size))
+        commit(AppOps.setGrainLook(state, amount, size))
 
     /** 위치 권한을 갖고 있는지(MainActivity가 알려 준다) */
     var locationGranted by mutableStateOf(false)
@@ -547,25 +416,11 @@ class AppController(private val appContext: Context) {
 
     /** 위치 기록을 켜면 권한이 없을 때 바로 권한을 묻는다 */
     fun setRecordLocation(v: Boolean) {
-        commit(RollEngine.setRecordLocation(state, v))
+        commit(AppOps.setRecordLocation(state, v))
         if (v && !locationGranted) onRequestLocation?.invoke()
     }
 
-    // ── 디버그 전용(설정 화면의 "프로토타입 테스트") ──
-
-    /** 남은 장수를 가짜 사진으로 채워 롤을 끝낸다(현상 흐름 테스트용) */
-    fun debugFinishRoll() {
-        val roll = state.roll ?: return
-        scope.launch {
-            repeat(roll.remaining) { i ->
-                val saved = withContext(Dispatchers.IO) { DebugPhotos.make(appContext, roll.film, roll.shots.size + i) }
-                onPhotoSaved(saved, Mode.FILM, roll.film)
-            }
-        }
-        panel = null
-    }
-
-    /** 촬영 설정(격자/각인/그레인/볼륨 셔터)과 노출을 처음 값으로 되돌린다. 사진과 롤은 그대로 */
+    /** 촬영 설정(격자/각인/그레인/볼륨 셔터)과 노출을 처음 값으로 되돌린다. 사진은 그대로 */
     fun resetSettings() {
         val d = AppState()
         commit(state.copy(grid = d.grid, stamp = d.stamp, volumeShutter = d.volumeShutter, grainOn = d.grainOn, grainAmount = d.grainAmount, grainSize = d.grainSize, recordLocation = d.recordLocation))
@@ -575,28 +430,23 @@ class AppController(private val appContext: Context) {
         showToast("촬영 설정을 초기화했어요")
     }
 
-    /** 진행 중인 롤과 모든 사진을 지운다(설정/고른 필름은 유지). 상태를 먼저 저장해서 지우고 파일은 그 뒤에 지운다 */
+    /** 모든 사진을 지운다(설정/고른 필름은 유지). 상태를 먼저 저장해서 지우고 갤러리 항목은 그 뒤에 지운다 */
     fun wipeAll() {
         alert = null
-        val shots = state.singleShots + state.devRolls.flatMap { it.shots } + (state.roll?.shots ?: emptyList())
-        if (!tryCommit(state.copy(roll = null, singleShots = emptyList(), devRolls = emptyList()))) return
-        pendingFilm = null
+        val shots = state.shots
+        if (!tryCommit(state.copy(shots = emptyList()))) return
         panel = null
         deleteFiles(shots)
-        scope.launch(Dispatchers.IO) { File(appContext.filesDir, "rolls").deleteRecursively() }
-        showToast("모든 사진과 롤을 지웠어요 · 롤 잠금이 풀렸어요")
+        showToast("모든 사진을 지웠어요")
     }
 
     /** 설정의 "앱 보관함": 사진 장수와 크기. 파일 크기를 읽어야 해서 IO 스레드에서 부른다 */
     fun storageSummary(): Pair<Int, Long> {
         val s = state
-        val shots = s.singleShots + s.devRolls.flatMap { it.shots } + (s.roll?.shots ?: emptyList())
+        val shots = s.shots
         var bytes = 0L
         shots.forEach { sh ->
-            bytes += runCatching {
-                if (!sh.uri.isNullOrEmpty()) appContext.contentResolver.openFileDescriptor(android.net.Uri.parse(sh.uri), "r")?.use { it.statSize } ?: 0L
-                else File(appContext.filesDir, sh.file).length()
-            }.getOrDefault(0L)
+            bytes += runCatching { appContext.contentResolver.openFileDescriptor(android.net.Uri.parse(sh.uri), "r")?.use { it.statSize } ?: 0L }.getOrDefault(0L)
         }
         return shots.size to bytes
     }

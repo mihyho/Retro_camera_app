@@ -1,7 +1,7 @@
 package com.example.retrocamera
 
 import com.example.retrocamera.data.AppState
-import com.example.retrocamera.data.RollEngine
+import com.example.retrocamera.data.AppOps
 import com.example.retrocamera.data.StateStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -33,7 +33,7 @@ class GrainLookTest {
     }
 
     @Test fun grainLookIsClampedAndPersisted() {
-        val s = RollEngine.setGrainLook(AppState(), amount = 9f, size = 0f)
+        val s = AppOps.setGrainLook(AppState(), amount = 9f, size = 0f)
         assertEquals(2f, s.grainAmount, 0f); assertEquals(0.5f, s.grainSize, 0f)
         assertEquals(0.5f, StateStore.fromJson(org.json.JSONObject(StateStore.toJson(s).toString())).grainSize, 0f)
         assertEquals(1f, StateStore.fromJson(org.json.JSONObject("""{"version":1,"mode":"FILM","roll":null,"singleFilm":"gold","singleShots":[],"devRolls":[],"grid":false,"stamp":true}""")).grainAmount, 0f)

@@ -43,7 +43,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.retrocamera.AppController
 import com.example.retrocamera.data.Film
-import com.example.retrocamera.data.Mode
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -70,8 +69,6 @@ fun FilmStrip(c: AppController, origin: IntOffset, modifier: Modifier = Modifier
     val shown = remember(s.hiddenFilms, s.customFilms, s.filmOrder) { c.visibleFilms } // 지우지 않은 필름(바꾼 순서대로)
     val slots = remember(s.customFilms) { Film.entries }                   // GL 타일 번호(지운 필름 자리도 포함)
     val plus = shown.size                                                   // 맨 끝 "+" 칸
-    val locked = s.mode == Mode.FILM && s.roll != null
-    val hidden = s.mode == Mode.FILM && s.roll == null // 롤이 없으면 "필름 넣기" 덮개가 뜬다
 
     val cur = shown.indexOf(c.currentFilm).coerceAtLeast(0)
     val density = LocalDensity.current
@@ -88,10 +85,10 @@ fun FilmStrip(c: AppController, origin: IntOffset, modifier: Modifier = Modifier
     // 손가락 위치에 가장 가까운 칸(끝의 "+" 칸 포함): 필름이 실제로 바뀌기 전에도 링이 먼저 따라온다
     val near by remember { derivedStateOf { (-pos.value / step).roundToInt().coerceIn(0, plus) } }
 
-    // 넘기는 동안 가장 가까운 필름의 색(포인트 색·프리뷰 색감)이 바로바로 따라온다. 롤이 장전돼 있으면 필름이 안 바뀌니 건드리지 않는다
+    // 넘기는 동안 가장 가까운 필름의 색(포인트 색·프리뷰 색감)이 바로바로 따라온다
     val nearFilm = shown.getOrNull(near)
-    LaunchedEffect(nearFilm, locked, hidden) {
-        if (!locked && !hidden && nearFilm != null) { Ds.liveFilm = nearFilm; c.onLiveFilm?.invoke(nearFilm) }
+    LaunchedEffect(nearFilm) {
+        if (nearFilm != null) { Ds.liveFilm = nearFilm; c.onLiveFilm?.invoke(nearFilm) }
     }
 
     // 바깥(그리드·필름 보관 등)에서 필름이 바뀌어도 따라간다. 드래그 직후에는 같은 목표라 속도가 이어진다
@@ -99,11 +96,11 @@ fun FilmStrip(c: AppController, origin: IntOffset, modifier: Modifier = Modifier
 
     // 칩 위치를 GL 렌더러에 알린다. 타일 번호(slot)마다 8개: x, y(뷰 위쪽 기준), 크기, 투명도, 링 두께(0이면 없음), 링 색 r g b.
     // 링도 GL이 같은 프레임에 그려서 영상과 어긋나지 않는다. 지운 필름의 자리는 0(그리지 않음)
-    LaunchedEffect(hidden, width, step, origin, shown) {
-        if (hidden || width == 0) { c.onStrip?.invoke(null); return@LaunchedEffect }
+    LaunchedEffect(width, step, origin, shown) {
+        if (width == 0) { c.onStrip?.invoke(null); return@LaunchedEffect }
         snapshotFlow { pos.value }.collect { p ->
             val r = FloatArray(slots.size * 8 + 4)
-            val ringAt = if (locked) cur else (-p / step).roundToInt().coerceIn(0, plus)
+            val ringAt = (-p / step).roundToInt().coerceIn(0, plus)
             for (i in shown.indices) {
                 val slot = slots.indexOf(shown[i])
                 if (slot < 0) continue
@@ -130,27 +127,26 @@ fun FilmStrip(c: AppController, origin: IntOffset, modifier: Modifier = Modifier
 
     fun rubber(over: Float, dim: Float, k: Float) = over * dim * k / (dim + k * abs(over))
     fun resist(x: Float): Float {
-        if (locked) { val base = -cur * step; return base + rubber(x - base, step * 1.2f, .35f) }
         val lo = -plus * step
         return when { x > 0f -> rubber(x, step * 2, .55f); x < lo -> lo - rubber(lo - x, step * 2, .55f); else -> x }
     }
 
     fun pick(i: Int) {
-        if (i == plus) { if (!locked) c.openFilmMenu(); return }
+        if (i == plus) { c.openFilmMenu(); return }
         if (i == cur) return
-        if (locked) c.lockedFilmTapped() else c.takeFilm(shown[i])
+        c.takeFilm(shown[i])
     }
 
     Box(
         modifier.fillMaxWidth().height(FILM_STRIP_HEIGHT).clipToBounds().onSizeChanged { width = it.width }
-            .then(if (hidden) Modifier else Modifier.draggable(
+            .then(Modifier.draggable(
                 orientation = Orientation.Horizontal,
                 state = rememberDraggableState { d -> raw += d; scope.launch { pos.snapTo(resist(raw)) } },
                 onDragStarted = { scope.launch { pos.stop() }; raw = pos.value },
                 onDragStopped = { v ->
                     // 놓은 속도로 멈출 곳을 예측해 가까운 칸으로 붙는다(감속 0.99)
                     val target = (-(pos.value + v / 1000f * .99f / .01f) / step).roundToInt().coerceIn(0, plus)
-                    val end = if (locked) cur else target
+                    val end = target
                     scope.launch {
                         var picked = false
                         pos.animateTo(-end * step, spec, initialVelocity = v) {
@@ -162,7 +158,7 @@ fun FilmStrip(c: AppController, origin: IntOffset, modifier: Modifier = Modifier
                 },
             )),
     ) {
-        if (!hidden) Row(
+        Row(
             Modifier.wrapContentWidth(Alignment.Start, unbounded = true)
                 .offset { IntOffset(((width - step) / 2f + pos.value).roundToInt(), TOP_PAD.roundToPx()) },
         ) {

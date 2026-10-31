@@ -67,16 +67,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.retrocamera.AppController
+import com.example.retrocamera.PixelFont
+import kotlin.math.roundToInt
 import com.example.retrocamera.ZoomMath
 import com.example.retrocamera.data.Film
-import com.example.retrocamera.data.Mode
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 
 /**
- * 카메라 본체: GL 화면 하나가 전체를 채우고, 그 위에 상단 바 · 프리뷰 틀(4:5 고정, 둥근 모서리) · 필름 스트립 · 모드/셔터 줄을 얹는다.
+ * 카메라 본체: GL 화면 하나가 전체를 채우고, 그 위에 상단 바 · 프리뷰 틀(4:5 고정, 둥근 모서리) · 필름 스트립 · 셔터 줄을 얹는다.
  * 스트립 칩의 그림도 같은 GL 화면이 그린다(실시간 영상 + 그 필름 LUT).
  * 세로는 위에서 아래로. 가로는 프리뷰를 화면 높이만큼 크게(상태바·내비게이션 바 뒤까지) 왼쪽에 두고, 상단 바와 컨트롤은 오른쪽에 둔다.
  */
@@ -84,7 +85,7 @@ import kotlin.math.floor
 fun CameraBody(
     c: AppController, glView: GLSurfaceView, topBar: @Composable () -> Unit,
     onLibrary: () -> Unit, onShutter: () -> Unit, onGrid: () -> Unit,
-    onZoomBy: (Float) -> Unit, onZoomStep: () -> Unit, onLoad: () -> Unit, modifier: Modifier = Modifier,
+    onZoomBy: (Float) -> Unit, onZoomStep: () -> Unit, modifier: Modifier = Modifier,
 ) {
     val land = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val d = LocalDensity.current
@@ -105,13 +106,13 @@ fun CameraBody(
         val vMargin = with(d) { 24.dp.roundToPx() }
         val topH = with(d) { 45.dp.roundToPx() }
         val band = with(d) { FILM_STRIP_HEIGHT.roundToPx() }
-        val ctrl = with(d) { 123.dp.roundToPx() }
+        val ctrl = with(d) { 89.dp.roundToPx() }
         val radius = with(d) { 26.dp.roundToPx() }
         // 촬영 비율은 4:5 고정: 세로로 들면 가로:세로 = 4:5, 가로로 들면 같은 비율을 눕힌 5:4
         val pH: Int; val pW: Int; val pX: Int; val pY: Int
         if (!land) {
             pY = topH
-            pH = minOf((w - 2 * margin) * 5 / 4, h - topH - band - ctrl).coerceAtLeast(0); pW = pH * 4 / 5; pX = (w - pW) / 2
+            pH = minOf((w - 2 * margin) * 5 / 4, h - topH - band - ctrl - with(d) { 12.dp.roundToPx() }).coerceAtLeast(0); pW = pH * 4 / 5; pX = (w - pW) / 2
         } else {
             // 가로로 들면 4:5를 눕힌 5:4. 위아래에 여유를 둔다(가장자리를 쓸어 내리는 시스템 제스처 영역도 피한다)
             pY = vMargin; pH = (h - 2 * vMargin).coerceAtLeast(0); pW = pH * 5 / 4; pX = margin
@@ -119,11 +120,11 @@ fun CameraBody(
         val rx = if (land) pX + pW + margin else 0
         val rw = (w - rx).coerceAtLeast(0)
         val barY = if (land) insetTop + vMargin / 2 else 0
-        // 가로: 셔터 줄(89dp)은 아래 여유 위에 붙이고, 그 위로 간격을 두고 모드 줄(34dp)과 스트립을 쌓는다
-        val rowH = with(d) { 89.dp.roundToPx() }; val modesH = with(d) { 34.dp.roundToPx() }
-        val rowY = h - insetBottom - vMargin - rowH
-        val modesY = rowY - with(d) { 28.dp.roundToPx() } - modesH // 셔터 줄과의 간격이 스트립과의 간격보다 넓다
-        val stripY = if (land) maxOf(barY + topH, modesY - with(d) { 24.dp.roundToPx() } - band) else pY + pH
+        // 가로: 셔터 줄(89dp)은 아래 여유 위에 붙이고, 그 위로 간격을 두고 스트립을 쌓는다
+        val rowH = with(d) { 89.dp.roundToPx() }
+        val rowY = h - insetBottom - vMargin - rowH - with(d) { 24.dp.roundToPx() } // 가로: 셔터 줄(과 그 위 스트립)을 아래 여유보다 위로 올린다
+        val stripGap = with(d) { 12.dp.roundToPx() } // 세로: 프리뷰와 스트립 사이를 조금 띄운다
+        val stripY = if (land) maxOf(barY + topH, rowY - with(d) { 64.dp.roundToPx() } - band) else pY + pH + stripGap
 
         AndroidView({ glView }, Modifier.fillMaxSize())
         if (c.perm == AppController.Perm.GRANTED) {
@@ -134,22 +135,21 @@ fun CameraBody(
                 // 필름 메뉴(그리드)를 연 동안은 모서리를 둥글게 자르지 않는다: 영상 타일은 GL이 네모로 그려서, 위에 얹는 칸만 둥글게 자르면 아래쪽 모서리가 흐리게 잘려 보인다
                 .then(if (c.drawerOpen) Modifier else Modifier.clip(RoundedCornerShape(26.dp)))) {
                 // 가로에서는 프리뷰가 상태바 뒤까지 올라가므로, 필름 칩이 상태바 글자와 겹치지 않게 내린다
-                Viewfinder(c, onZoomBy, onZoomStep, onLoad, with(d) { (insetTop - margin).coerceAtLeast(0).toDp() })
+                Viewfinder(c, onZoomBy, onZoomStep, with(d) { (insetTop - margin).coerceAtLeast(0).toDp() })
             }
             if (!land) {
                 Column(Modifier.offset { IntOffset(rx, stripY) }.width(with(d) { rw.toDp() })) {
-                    // 필름 메뉴가 열리면 스트립 자리는 지우기/순서 버튼, 필름용 사진을 찍는 동안은 비운다
+                    // 필름 메뉴가 열리면 스트립 자리는 보관/순서 버튼, 필름용 사진을 찍는 동안은 비운다
                     if (capturing) Spacer(Modifier.height(FILM_STRIP_HEIGHT)) else if (c.drawerOpen) FilmMenuBar(c) else FilmStrip(c, origin = IntOffset(rx, stripY))
-                    // 스트립과 FILM/SINGLE 줄 사이를 띄운다. 14dp 띄우면 셔터 줄은 6dp 내려가 버리므로 컨트롤 높이를 12dp 줄여 셔터 줄 위치는 그대로 둔다
+                    // 남는 공간 안에서 셔터 줄이 가운데에 오게 한다
                     Spacer(Modifier.height(14.dp))
-                    Controls(c, onLibrary, onShutter, onGrid, Modifier.height((with(d) { (h - stripY - band).coerceAtLeast(0).toDp() } - 20.dp).coerceAtLeast(0.dp)))
+                    ButtonsRow(c, onLibrary, onShutter, onGrid, Modifier.height((with(d) { (h - stripY - band).coerceAtLeast(0).toDp() } - 38.dp).coerceAtLeast(0.dp)))
                 }
             } else {
-                // 가로: 스트립 → (좁은 간격) → FILM/SINGLE → (조금 더 넓은 간격) → 셔터 줄. 셔터 줄 위치는 그대로
+                // 가로: 스트립 → 셔터 줄
                 Box(Modifier.offset { IntOffset(rx, stripY) }.width(with(d) { rw.toDp() })) {
                     if (capturing) Unit else if (c.drawerOpen) FilmMenuBar(c) else FilmStrip(c, origin = IntOffset(rx, stripY))
                 }
-                if (!capturing) ModesRow(c, Modifier.offset { IntOffset(rx, modesY) }.width(with(d) { rw.toDp() }).height(34.dp))
                 ButtonsRow(c, onLibrary, onShutter, onGrid, Modifier.offset { IntOffset(rx, rowY) }.width(with(d) { rw.toDp() }).height(89.dp))
             }
         } else {
@@ -166,9 +166,7 @@ private fun TopIcon(modifier: Modifier = Modifier, alpha: Float = 1f, onClick: (
 }
 
 @Composable
-fun TopBar(c: AppController, onSettings: () -> Unit, onLibrary: () -> Unit) {
-    val s = c.state
-    val roll = s.roll
+fun TopBar(c: AppController, onSettings: () -> Unit) {
     Column(Modifier.fillMaxWidth().background(Ds.Bg)) {
         Box(Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 4.dp)) {
             Row(Modifier.align(Alignment.CenterStart), verticalAlignment = Alignment.CenterVertically) {
@@ -194,22 +192,6 @@ fun TopBar(c: AppController, onSettings: () -> Unit, onLibrary: () -> Unit) {
                     }
                 }
             }
-            // 카운터: 탭하면 사진 보관함
-            Row(
-                Modifier.align(Alignment.Center).height(34.dp).clip(RoundedCornerShape(17.dp)).background(Ds.Glass)
-                    .border(1.dp, Ds.Line, RoundedCornerShape(17.dp)).tap(onClick = onLibrary).padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.padding(end = 8.dp).size(7.dp).clip(CircleShape).background(Ds.Accent))
-                when {
-                    s.mode == Mode.SINGLE -> Text("SINGLE", Ds.Ink, t15.copy(fontWeight = FontWeight.Medium))
-                    roll == null -> Text("필름 없음", Ds.Ink, t15.copy(fontWeight = FontWeight.Medium))
-                    else -> {
-                        Text("${roll.remaining}", Ds.Ink, t15.copy(fontWeight = FontWeight.Medium))
-                        Text(" / ${roll.total}", Ds.Sub, t13)
-                    }
-                }
-            }
             Row(Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) {
                 TopIcon(alpha = if (c.flipAvailable) 1f else .35f, onClick = { if (c.flipAvailable) c.flipCamera() else c.showToast("전환할 카메라가 없어요") }) {
                     Icon(Ico.FLIP, 22.dp, Ds.Ink)
@@ -226,18 +208,6 @@ fun evText(index: Int, step: Float): String = "%+.1f".format(index * step)
 // ───────────────────────── 하단 ─────────────────────────
 
 @Composable
-private fun ModeLabel(text: String, active: Boolean, onClick: () -> Unit) {
-    Column(Modifier.tap(onClick = onClick).padding(horizontal = 13.dp, vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text, if (active) Ds.Ink else Ds.Sub,
-            TextStyle(fontFamily = Sans, fontSize = 13.sp, letterSpacing = 1.sp, fontWeight = if (active) FontWeight.Medium else FontWeight.Normal),
-            softWrap = false,
-        )
-        Box(Modifier.padding(top = 3.dp).size(5.dp).clip(CircleShape).background(if (active) Ds.Accent else Color.Transparent))
-    }
-}
-
-@Composable
 private fun Shutter(onClick: () -> Unit) {
     val src = remember { MutableInteractionSource() }
     val pressed by src.collectIsPressedAsState()
@@ -249,32 +219,10 @@ private fun Shutter(onClick: () -> Unit) {
     ) { Box(Modifier.size(62.dp).clip(CircleShape).background(if (pressed) Ds.AccentPress else Ds.Accent)) }
 }
 
-/** 모드(FILM/SINGLE) 줄 + 셔터 줄. 보관함 버튼과 필름 그리드 버튼은 어느 방향에서나 셔터 좌우에 있다 */
-@Composable
-fun Controls(c: AppController, onLibrary: () -> Unit, onShutter: () -> Unit, onGrid: () -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier) {
-        // 필름을 만들 사진을 찍는 동안은 FILM/SINGLE 줄도 없이(자리만 남기고) 셔터만 둔다
-        if (c.maker == AppController.Maker.CAPTURE) Spacer(Modifier.fillMaxWidth().height(34.dp))
-        else ModesRow(c, Modifier.fillMaxWidth().height(34.dp))
-        ButtonsRow(c, onLibrary, onShutter, onGrid, Modifier.fillMaxWidth().weight(1f))
-    }
-}
-
-@Composable
-fun ModesRow(c: AppController, modifier: Modifier = Modifier) {
-    val s = c.state
-    Box(modifier, contentAlignment = Alignment.Center) {
-        Row(horizontalArrangement = Arrangement.spacedBy(13.dp)) {
-            ModeLabel("FILM", s.mode == Mode.FILM) { c.setMode(Mode.FILM) }
-            ModeLabel("SINGLE", s.mode == Mode.SINGLE) { c.setMode(Mode.SINGLE) }
-        }
-    }
-}
-
+/** 셔터 줄. 보관함 버튼과 필름 그리드 버튼은 어느 방향에서나 셔터 좌우에 있다 */
 @Composable
 fun ButtonsRow(c: AppController, onLibrary: () -> Unit, onShutter: () -> Unit, onGrid: () -> Unit, modifier: Modifier = Modifier) {
     val s = c.state
-    val roll = s.roll
     val libShape = RoundedCornerShape(12.dp)
     val capturing = c.maker == AppController.Maker.CAPTURE // 필름용 사진을 찍는 중: 셔터만 보인다
     run {
@@ -284,12 +232,8 @@ fun ButtonsRow(c: AppController, onLibrary: () -> Unit, onShutter: () -> Unit, o
                     Modifier.size(50.dp).clip(libShape).background(Ds.Bg2).border(1.5.dp, Ds.Line, libShape).tap(onClick = onLibrary),
                     contentAlignment = Alignment.Center,
                 ) {
-                    val last = s.singleShots.firstOrNull()
-                    when {
-                        s.mode == Mode.SINGLE && last != null -> Thumb(last, 120, Modifier.fillMaxSize())
-                        s.mode == Mode.FILM && roll != null -> Text("${roll.shots.size}", Ds.Ink, t17m)
-                        else -> Icon(Ico.IMAGES, 22.dp, Ds.Ink)
-                    }
+                    val last = s.shots.firstOrNull()
+                    if (last != null) Thumb(last, 120, Modifier.fillMaxSize()) else Icon(Ico.IMAGES, 22.dp, Ds.Ink)
                 }
             }
             Shutter(onShutter)
@@ -305,31 +249,34 @@ fun ButtonsRow(c: AppController, onLibrary: () -> Unit, onShutter: () -> Unit, o
 // ───────────────────────── 뷰파인더 ─────────────────────────
 
 @Composable
-fun Viewfinder(c: AppController, onZoomBy: (Float) -> Unit, onZoomStep: () -> Unit, onLoad: () -> Unit, chipInset: androidx.compose.ui.unit.Dp = 0.dp) {
+fun Viewfinder(c: AppController, onZoomBy: (Float) -> Unit, onZoomStep: () -> Unit, chipInset: androidx.compose.ui.unit.Dp = 0.dp) {
     val s = c.state
-    val noFilm = s.mode == Mode.FILM && s.roll == null
-    val gestures = !c.drawerOpen && !noFilm && c.panel == null && !c.loadOpen
+    val gestures = !c.drawerOpen && c.panel == null
     val capturing = c.maker == AppController.Maker.CAPTURE // 필름용 사진을 찍는 중: 안내와 셔터 말고는 아무것도 얹지 않는다
     // 영상은 GL이 이 뒤에서 그린다. 여기는 프리뷰 위에 얹는 요소들
     Box(Modifier.fillMaxSize()) {
         if (gestures) GestureLayer(onZoomBy)
-        if (s.grid && !c.drawerOpen && !noFilm && !capturing) GridLines()
-        if (!c.drawerOpen && !noFilm && !capturing) {
+        if (s.grid && !c.drawerOpen && !capturing) GridLines()
+        if (!c.drawerOpen && !capturing) {
             FilmChip(Ds.liveFilm ?: c.currentFilm, Modifier.align(Alignment.TopStart).padding(start = 8.dp, end = 8.dp, bottom = 8.dp, top = 8.dp + chipInset))
-            if (s.stamp) Text(
-                c.stampText(), Ds.Stamp,
-                TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                    shadow = androidx.compose.ui.graphics.Shadow(Color(0x99FF781E), blurRadius = 8f)),
-                Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = if (c.exposureOpen) 86.dp else 10.dp), softWrap = false,
-            )
+            if (s.stamp) PixelStamp(c.stampText(), Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = if (c.exposureOpen) 86.dp else 10.dp))
             if (c.zoomMax > 1.01f) ZoomHud(c.zoomRatio, onZoomStep, Modifier.align(Alignment.BottomCenter).padding(bottom = if (c.exposureOpen) 92.dp else 12.dp))
         }
         if (c.maker == AppController.Maker.CAPTURE) CaptureBanner(c, Modifier.align(Alignment.TopCenter).padding(top = 52.dp))
         if (c.drawerOpen) FilmGrid(c)
-        if (noFilm) NoFilmOverlay(onLoad)
         if (c.exposureOpen) ExposurePanel(c, Modifier.align(Alignment.BottomCenter))
         Shot(c.flashTrigger)
         if (c.screenFlash) Box(Modifier.fillMaxSize().background(Color.White))
+    }
+}
+
+/** 날짜 각인: 저장되는 사진과 같은 8비트 도트 글꼴 */
+@Composable
+private fun PixelStamp(text: String, modifier: Modifier) {
+    val cell = with(LocalDensity.current) { 1.8.dp.toPx().roundToInt().coerceAtLeast(1) }
+    val w = PixelFont.widthCells(text) * cell; val h = PixelFont.ROWS * cell
+    Canvas(modifier.size(with(LocalDensity.current) { w.toDp() }, with(LocalDensity.current) { h.toDp() })) {
+        PixelFont.forEachCell(text) { c, r -> drawRect(Ds.Stamp, Offset(c * cell + cell * (1f - PixelFont.DOT) / 2f, r * cell + cell * (1f - PixelFont.DOT) / 2f), androidx.compose.ui.geometry.Size(cell * PixelFont.DOT, cell * PixelFont.DOT)) }
     }
 }
 
@@ -418,10 +365,9 @@ private fun FilmGrid(c: AppController) {
                     if (idx == films.size && c.gridSelection.isNotEmpty()) {
                         Box(Modifier.weight(1f).fillMaxHeight().background(Ds.Bg)) // 고르는 중에는 "+" 칸을 비워 둔다
                     } else if (idx == films.size) {
-                        val locked = s.mode == Mode.FILM && s.roll != null
                         Box(
                             Modifier.weight(1f).fillMaxHeight().background(Ds.Bg).border(0.5.dp, Ds.Line)
-                                .tap { if (locked) c.lockedFilmTapped() else c.openFilmMenu() },
+                                .tap { c.openFilmMenu() },
                             contentAlignment = Alignment.Center,
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -432,13 +378,7 @@ private fun FilmGrid(c: AppController) {
                     } else if (f == null) {
                         Box(Modifier.weight(1f).fillMaxHeight().background(Ds.Bg))
                     } else {
-                        val roll = s.roll
-                        val locked = s.mode == Mode.FILM && roll != null && roll.film != f
-                        val current = when {
-                            s.mode == Mode.SINGLE -> s.singleFilm == f
-                            roll != null -> roll.film == f
-                            else -> c.pendingFilm == f
-                        }
+                        val current = s.film == f
                         val selecting = c.gridSelection.isNotEmpty()
                         val picked = f.key in c.gridSelection
                         Box(
@@ -448,18 +388,15 @@ private fun FilmGrid(c: AppController) {
                                         when {
                                             selecting -> c.toggleGridSelect(f)                  // 고르는 중에는 탭이 선택을 바꾼다
                                             current -> c.closeDrawer()
-                                            locked -> c.lockedFilmTapped()
                                             else -> { c.takeFilm(f); c.showToast(f.displayName) }
                                         }
                                     },
                                     onLongClick = {
-                                        // 꾹 누르면 선택 시작. 롤을 장전한 동안은 필름 메뉴를 바꾸지 않는다
-                                        if (s.mode == Mode.FILM && s.roll != null) c.lockedFilmTapped()
-                                        else { haptic.performHapticFeedback(HapticFeedbackType.LongPress); c.toggleGridSelect(f) }
+                                        // 꾹 누르면 선택 시작
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress); c.toggleGridSelect(f)
                                     },
                                 ),
                         ) {
-                            if (locked) Box(Modifier.fillMaxSize().background(Ds.Bg.copy(alpha = .6f)))
                             if (picked) Box(Modifier.fillMaxSize().background(Ds.Accent.copy(alpha = .30f)))
                             if (selecting) Box(
                                 Modifier.align(Alignment.TopStart).padding(7.dp).size(22.dp).clip(CircleShape)
@@ -474,7 +411,6 @@ private fun FilmGrid(c: AppController) {
                                     .padding(top = 12.dp, bottom = 4.dp, start = 2.dp, end = 2.dp),
                                 maxLines = 1, softWrap = false,
                             )
-                            if (locked) Icon(Ico.LOCK, 16.dp, Ds.Ink, Modifier.align(Alignment.TopEnd).padding(5.dp))
                             if (current) Box(Modifier.fillMaxSize().border(3.dp, Ds.Accent))
                         }
                     }
@@ -503,25 +439,6 @@ private fun ExposurePanel(c: AppController, modifier: Modifier) {
             }
             StepSlider(c.exposureIndex.coerceIn(lo, hi), lo, hi, onChange = c::setExposure)
         }
-    }
-}
-
-@Composable
-private fun NoFilmOverlay(onLoad: () -> Unit) {
-    val src = remember { MutableInteractionSource() }
-    val pressed by src.collectIsPressedAsState()
-    Column(
-        Modifier.fillMaxSize().background(Ds.Bg.copy(alpha = .9f)).tap { /* 아래 뷰파인더로 탭이 새지 않게 */ }.padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
-    ) {
-        Text("필름이 없어요", Ds.Ink, t17m)
-        Text("필름 모드는 롤을 넣고 다 찍을 때까지 필름을 바꿀 수 없어요. 사진은 롤이 끝나면 현상돼요.", Ds.Sub, t13.copy(textAlign = TextAlign.Center, lineHeight = 19.sp), Modifier.widthIn(max = 240.dp))
-        Spacer(Modifier.height(6.dp))
-        Box(
-            Modifier.height(36.dp).clip(RoundedCornerShape(18.dp)).background(if (pressed) Ds.AccentPress else Ds.Accent)
-                .clickable(src, null, onClick = onLoad).padding(horizontal = 22.dp),
-            contentAlignment = Alignment.Center,
-        ) { Text("필름 넣기", Ds.OnAccent, sansStyle(15.sp, FontWeight.Medium)) }
     }
 }
 

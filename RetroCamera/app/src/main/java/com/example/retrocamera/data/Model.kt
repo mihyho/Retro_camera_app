@@ -170,41 +170,23 @@ class Film(
     }
 }
 
-enum class Mode { FILM, SINGLE }
-
-/** file은 앱 전용 저장소 기준 상대 경로, uri는 갤러리(MediaStore)로 내보낸 뒤의 주소(내보내기 전에는 null) */
-data class Shot(val film: Film, val file: String, val takenAt: Long, val uri: String? = null, val lat: Double? = null, val lon: Double? = null,
+/** 찍은 사진 한 장. uri는 갤러리(MediaStore) 주소 */
+data class Shot(val film: Film, val uri: String, val takenAt: Long, val lat: Double? = null, val lon: Double? = null,
     /** 찍을 때의 그레인 양(필름 고유 세기에 곱한 배율, 0이면 그레인 없음)과 알갱이 크기 배율. 옛 사진은 null */
     val grainAmount: Float? = null, val grainSize: Float? = null)
 
-/** 필름 모드에서 진행 중인 롤. 이게 있으면 필름 잠금이 걸린다. */
-data class Roll(val film: Film, val total: Int, val shots: List<Shot>, val start: Long) {
-    val remaining: Int get() = total - shots.size
-}
-
-/** 다 찍어서 현상된 롤. exported=false면 아직 갤러리로 내보내기가 끝나지 않은 것(앱 시작 시 재시도). */
-data class DevelopedRoll(
-    val film: Film,
-    val total: Int,
-    val shots: List<Shot>,
-    val start: Long,
-    val end: Long,
-    val exported: Boolean,
-)
-
 data class AppState(
-    val mode: Mode = Mode.FILM,
-    val roll: Roll? = null,
-    val singleFilm: Film = Film.GOLD,
-    val singleShots: List<Shot> = emptyList(),
-    val devRolls: List<DevelopedRoll> = emptyList(),
+    /** 지금 고른 필름 */
+    val film: Film = Film.GOLD,
+    /** 찍은 사진(최신순) */
+    val shots: List<Shot> = emptyList(),
     val grid: Boolean = false,
     val stamp: Boolean = true,
     /** 볼륨 버튼으로 촬영(기본 켬) */
     val volumeShutter: Boolean = true,
     /** 촬영본에 필름 그레인을 넣을지(기본 켬) */
     val grainOn: Boolean = true,
-    /** 그레인 양(필름 고유 값에 곱하는 배율, 0..2) / 알갱이 크기 배율(0.5..4) / 거칠기(0..1) */
+    /** 그레인 양(필름 고유 값에 곱하는 배율, 0..2) / 알갱이 크기 배율(0.5..4) */
     val grainAmount: Float = 1f,
     val grainSize: Float = 1f,
     /** 찍을 때 위치를 사진(EXIF)과 사진 뒷면에 기록할지(기본 켬, 위치 권한이 있어야 실제로 기록된다) */

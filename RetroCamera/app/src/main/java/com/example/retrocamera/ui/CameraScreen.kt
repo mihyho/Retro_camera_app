@@ -33,11 +33,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.retrocamera.AppController
 import com.example.retrocamera.Panel
-import com.example.retrocamera.data.Mode
 import kotlinx.coroutines.delay
 
 /**
- * 화면 구성: 카메라(상단 바 · 뷰파인더 · 하단) 위에 페이지(보관함/설정/사진 보기)와 모달(필름 넣기/현상 완료)이 열린다.
+ * 화면 구성: 카메라(상단 바 · 뷰파인더 · 하단) 위에 페이지(보관함/설정/사진 보기)와 모달(새 필름 만들기)가 열린다.
  * 기존 십자키/MENU/EV 입력은 터치(스와이프, 필름 그리드, 노출 슬라이더)로 바뀌었고 기능은 그대로 있다.
  */
 @Composable
@@ -54,13 +53,12 @@ fun CameraScreen(
     if (viewer != null) lastViewer[0] = viewer
 
     BackHandler(enabled = c.alert != null) { c.alert = null }
-    BackHandler(enabled = c.alert == null && c.loadOpen) { c.loadOpen = false }
-    BackHandler(enabled = c.alert == null && !c.loadOpen && panel != null) { if (viewer != null) c.closeViewer(viewer) else c.panel = null }
-    BackHandler(enabled = panel == null && !c.loadOpen && c.drawerOpen) {
+    BackHandler(enabled = c.alert == null && panel != null) { if (viewer != null) c.closeViewer(viewer) else c.panel = null }
+    BackHandler(enabled = panel == null && c.drawerOpen) {
         if (c.gridSelection.isNotEmpty()) c.clearGridSelection() else c.closeDrawer() // 고르는 중이면 선택부터 푼다
     }
     LaunchedEffect(c.drawerOpen) { if (!c.drawerOpen) c.clearGridSelection() }
-    BackHandler(enabled = panel == null && !c.loadOpen && c.exposureOpen) { c.exposureOpen = false }
+    BackHandler(enabled = panel == null && c.exposureOpen) { c.exposureOpen = false }
     // 새 필름 만들기: 뒤로 가면 한 단계 전으로(편집 화면은 스스로 처리한다)
     BackHandler(enabled = c.alert == null && c.maker != null && c.maker != AppController.Maker.EDITOR) {
         when (c.maker) {
@@ -75,25 +73,21 @@ fun CameraScreen(
 
     Box(Modifier.fillMaxSize().background(Ds.Bg).windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))) {
         CameraBody(
-            c, glView, topBar = { TopBar(c, onSettings = { openPage(Panel.Settings) }, onLibrary = { openPage(Panel.Gallery) }) },
+            c, glView, topBar = { TopBar(c, onSettings = { openPage(Panel.Settings) }) },
             onLibrary = { openPage(Panel.Gallery) }, onShutter = onShutter,
-            onGrid = { if (s.mode == Mode.FILM && s.roll == null) c.openLoad() else if (c.drawerOpen) c.closeDrawer() else c.openDrawer() },
-            onZoomBy = onZoomBy, onZoomStep = onZoomStep, onLoad = c::openLoad,
+            onGrid = { if (c.drawerOpen) c.closeDrawer() else c.openDrawer() },
+            onZoomBy = onZoomBy, onZoomStep = onZoomStep,
         )
 
         // 페이지가 열리면 뒤의 카메라가 어두워진다(페이지와 같은 스프링으로 따라 움직여서 한 동작처럼 보인다)
-        val pageOpen = base == Panel.Gallery || base == Panel.Settings || viewer != null || base is Panel.Develop || c.loadOpen ||
+        val pageOpen = base == Panel.Gallery || base == Panel.Settings || viewer != null ||
             (c.maker != null && c.maker != AppController.Maker.CAPTURE) // 사진을 찍는 동안은 카메라가 그대로 보여야 한다
         val dim by animateFloatAsState(if (pageOpen) 1f else 0f, spring(1f, 380f), label = "dim")
         if (dim > 0.001f) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .45f * dim.coerceIn(0f, 1f))))
 
         SlideRight(base == Panel.Gallery) { LibraryPage(c, onClose = { c.panel = null }) }
         SlideRight(base == Panel.Settings) { SettingsPage(c, onClose = { c.panel = null }) }
-        SlideUp(base is Panel.Develop) {
-            (base as? Panel.Develop)?.let { p -> s.devRolls.firstOrNull { it.start == p.rollStart }?.let { DevelopModal(c, it) } }
-        }
         SlideRight(viewer != null) { (viewer ?: lastViewer[0])?.let { DetailPage(c, it) } }
-        SlideUp(c.loadOpen) { FilmLoadModal(c) }
         // 새 필름 만들기: 메뉴 → (필름 보관함 | 사진 고르기 → 촬영/불러오기) → 편집
         SlideUp(c.maker == AppController.Maker.MENU) { FilmMenuModal(c) }
         SlideUp(c.maker == AppController.Maker.VAULT) { FilmVaultModal(c) }

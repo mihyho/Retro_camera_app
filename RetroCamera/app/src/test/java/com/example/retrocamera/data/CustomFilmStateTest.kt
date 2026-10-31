@@ -24,9 +24,9 @@ class CustomFilmStateTest {
     fun customFilmsHiddenFilmsAndShotsSurviveSaveAndLoad() {
         Film.setCustom(listOf(def))
         val custom = Film.fromKey("custom_1")
-        val shot = Shot(custom, "content://x/1", 1000L, "content://x/1", 37.5, 126.9)
+        val shot = Shot(custom, "content://x/1", 1000L, 37.5, 126.9)
         val state = AppState(
-            mode = Mode.SINGLE, singleFilm = custom, singleShots = listOf(shot),
+            film = custom, shots = listOf(shot),
             customFilms = listOf(def), hiddenFilms = setOf("gold", "forest", "custom_9"), purgedFilms = setOf("custom_9"),
             filmOrder = listOf("forest", "gold", "custom_1"),
         )
@@ -39,9 +39,9 @@ class CustomFilmStateTest {
         assertEquals(setOf("gold", "forest", "custom_9"), back.hiddenFilms)
         assertEquals(setOf("custom_9"), back.purgedFilms)
         assertEquals(listOf("forest", "gold", "custom_1"), back.filmOrder)
-        assertEquals("custom_1", back.singleFilm.key)
-        assertEquals("custom_1", back.singleShots.single().film.key)
-        assertEquals(37.5, back.singleShots.single().lat!!, 1e-9)
+        assertEquals("custom_1", back.film.key)
+        assertEquals("custom_1", back.shots.single().film.key)
+        assertEquals(37.5, back.shots.single().lat!!, 1e-9)
         assertTrue(Film.entries.any { it.key == "custom_1" })
     }
 
@@ -69,11 +69,11 @@ class CustomFilmStateTest {
         // 옛 사용자 필름 키로 저장된 상태를 읽으면 기본 필름으로 이어지고, 같은 이름의 필름이 둘이 되지 않는다
         val old = CustomFilm("custom_1793413564303", "Monochrome", 0xFFF5F1E8L, null, FilmAdjust())
         Film.setCustom(listOf(old))
-        val json = StateStore.toJson(AppState(mode = Mode.SINGLE, singleFilm = Film.fromKey("custom_1793413564303"), customFilms = listOf(old)))
+        val json = StateStore.toJson(AppState(film = Film.fromKey("custom_1793413564303"), customFilms = listOf(old)))
         Film.setCustom(emptyList())
         val back = StateStore.fromJson(JSONObject(json.toString()))
         assertTrue(back.customFilms.isEmpty())
-        assertEquals("monochrome", back.singleFilm.key)
+        assertEquals("monochrome", back.film.key)
         assertEquals(1, Film.entries.count { it.displayName == "Monochrome" })
         assertEquals("monochrome", Film.fromKey("custom_1793413564303").key)
     }

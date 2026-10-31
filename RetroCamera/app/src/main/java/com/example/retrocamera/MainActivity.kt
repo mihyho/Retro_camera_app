@@ -28,7 +28,6 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.example.retrocamera.data.Film
-import com.example.retrocamera.data.Mode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.example.retrocamera.ui.CameraScreen
@@ -48,9 +47,6 @@ class MainActivity : ComponentActivity() {
 
     private val worker = Executors.newSingleThreadExecutor()
 
-    /** 촬영은 했지만 아직 저장/카운트 반영이 안 끝난 필름 모드 장수. 마지막 장 중복 촬영 방지용. */
-    private var inFlightFilm = 0
-
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) { controller.perm = AppController.Perm.GRANTED; startCamera() } else controller.perm = AppController.Perm.DENIED
@@ -64,8 +60,7 @@ class MainActivity : ComponentActivity() {
         )
 
         controller = AppController(applicationContext)
-        controller.exportPending() // 내보내기 도중 앱이 죽었던 롤이 있으면 이어서 처리
-        controller.cleanOrphanFiles() // 필름을 버리는 도중 앱이 죽어 남은 사진 정리
+        controller.removeLegacyRollFiles() // 필름 롤 모드가 있던 시절 앱 전용 폴더에 남은 사진 정리
 
         glView = GLSurfaceView(this)
         glView.setEGLContextClientVersion(3)
@@ -337,27 +332,19 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun takePhoto() {
-        // 패널(현상/사진/설정)이 떠 있으면 셔터는 카메라 화면으로 돌아오기만 한다
+        // 패널(사진/설정)이 떠 있으면 셔터는 카메라 화면으로 돌아오기만 한다
         if (controller.perm != AppController.Perm.GRANTED) return
         // 새 필름을 만들 사진을 찍는 중이면 저장하지 않고 편집 화면으로 간다
         if (controller.maker == AppController.Maker.CAPTURE) { captureForEditor(); return }
-        if (controller.panel != null || controller.drawerOpen || controller.alert != null || controller.loadOpen) {
-            controller.panel = null; controller.closeDrawer(); controller.alert = null; controller.loadOpen = false; return
+        if (controller.panel != null || controller.drawerOpen || controller.alert != null) {
+            controller.panel = null; controller.closeDrawer(); controller.alert = null; return
         }
         val capture = imageCapture ?: return
         val s = controller.state
-        val mode = s.mode
         val film = controller.currentFilm
-        val rollStart = s.roll?.start
         val grainOn = s.grainOn
         val stampText = if (s.stamp) formatStamp(System.currentTimeMillis()) else null
         val place = lastPlace() // 사진 뒷면에 보여 줄 촬영 위치(셔터를 누른 순간 기준)
-        if (mode == Mode.FILM) {
-            val roll = s.roll
-            if (roll == null) { controller.openLoad(); return }
-            if (roll.remaining - inFlightFilm <= 0) return // 마지막 장 처리 중
-            inFlightFilm++
-        }
         controller.triggerFlash()
         val lut = controller.lutFor(film)
 
@@ -373,17 +360,15 @@ class MainActivity : ComponentActivity() {
                     bytes = ByteArray(buf.remaining()).also { buf.get(it) }
                     rotation = image.imageInfo.rotationDegrees
                 } catch (e: Exception) {
-                    if (mode == Mode.FILM) inFlightFilm-- // 카운터가 새면 마지막 장을 못 찍게 된다
                     controller.showToast("촬영 실패")
                     return
                 } finally {
                     image.close()
                 }
                 worker.execute {
-                    val result = runCatching { PhotoPipeline.process(applicationContext, bytes, rotation, lut, mode, film, grainOn, stampText, place?.first, place?.second, s.grainAmount, s.grainSize) }
+                    val result = runCatching { PhotoPipeline.process(applicationContext, bytes, rotation, lut, film, grainOn, stampText, place?.first, place?.second, s.grainAmount, s.grainSize) }
                     runOnUiThread {
-                        if (mode == Mode.FILM) inFlightFilm--
-                        result.onSuccess { controller.onPhotoSaved(it, mode, film, rollStart, place?.first, place?.second, if (grainOn) s.grainAmount else 0f, s.grainSize) }
+                        result.onSuccess { controller.onPhotoSaved(it, film, place?.first, place?.second, if (grainOn) s.grainAmount else 0f, s.grainSize) }
                         result.onFailure {
                             Log.e("RetroCamera", "저장 실패", it)
                             controller.showToast("저장 실패: ${it.message}")
@@ -394,7 +379,6 @@ class MainActivity : ComponentActivity() {
 
             override fun onError(exception: ImageCaptureException) {
                 Log.e("RetroCamera", "촬영 실패", exception)
-                if (mode == Mode.FILM) inFlightFilm--
                 controller.showToast("촬영 실패")
             }
         })

@@ -59,7 +59,7 @@ fun Hairline(modifier: Modifier = Modifier) = Box(modifier.fillMaxWidth().height
 @Composable
 fun Thumb(shot: Shot, px: Int, modifier: Modifier, scale: ContentScale = ContentScale.Crop) {
     val context = LocalContext.current
-    val bmp by produceState<android.graphics.Bitmap?>(null, shot.uri, shot.file) {
+    val bmp by produceState<android.graphics.Bitmap?>(null, shot.uri) {
         value = withContext(Dispatchers.IO) { ThumbLoader.load(context, shot, px) }
     }
     Box(modifier.background(Ds.Bg2)) {

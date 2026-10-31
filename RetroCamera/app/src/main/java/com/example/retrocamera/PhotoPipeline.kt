@@ -11,20 +11,16 @@ import android.graphics.Typeface
 import android.media.ExifInterface
 import android.provider.MediaStore
 import com.example.retrocamera.data.Film
-import com.example.retrocamera.data.Mode
 import java.io.File
 import java.util.stream.IntStream
 
-/** 저장 결과. 필름 모드는 file(앱 전용 저장소 기준 상대 경로), 단일 촬영은 uri(갤러리 주소) */
-data class SavedPhoto(val file: String?, val uri: String?)
-
-/** JPEG 바이트 -> LUT 적용 -> 모드에 맞는 곳에 저장. 무거우므로 반드시 백그라운드 스레드에서 호출. */
+/** JPEG 바이트 -> LUT 적용 -> 갤러리에 저장하고 그 주소(uri)를 돌려준다. 무거우므로 반드시 백그라운드 스레드에서 호출. */
 object PhotoPipeline {
 
     private const val STRIP_ROWS = 256
     private const val JPEG_QUALITY = 95
 
-    fun process(context: Context, jpeg: ByteArray, rotationDegrees: Int, lut: CubeLut, mode: Mode, film: Film, grainOn: Boolean = true, stampText: String? = null, lat: Double? = null, lon: Double? = null, grainAmount: Float = 1f, grainSize: Float = 1f): SavedPhoto {
+    fun process(context: Context, jpeg: ByteArray, rotationDegrees: Int, lut: CubeLut, film: Film, grainOn: Boolean = true, stampText: String? = null, lat: Double? = null, lon: Double? = null, grainAmount: Float = 1f, grainSize: Float = 1f): String {
         val opts = BitmapFactory.Options().apply {
             inMutable = true
             inPreferredConfig = Bitmap.Config.ARGB_8888
@@ -55,10 +51,7 @@ object PhotoPipeline {
             }
             val name = "FILM_" + java.text.SimpleDateFormat("yyyyMMdd_HHmmss_SSS", java.util.Locale.US)
                 .format(java.util.Date()) + ".jpg"
-            return when (mode) {
-                Mode.SINGLE -> SavedPhoto(null, saveToGallery(context, tmp, name).toString())
-                Mode.FILM -> SavedPhoto(saveToPrivate(context, tmp, name), null)
-            }
+            return saveToGallery(context, tmp, name).toString()
         } finally {
             tmp.delete()
         }
@@ -110,14 +103,15 @@ object PhotoPipeline {
             setRotate(-rot.toFloat())
             when (rot) { 90 -> postTranslate(0f, h); 180 -> postTranslate(w, h); 270 -> postTranslate(w, 0f) }
         }
-        val size = minOf(upW, upH) * 0.04f
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0xFFFF9A3C.toInt(); textSize = size; typeface = Typeface.MONOSPACE
-            textAlign = Paint.Align.RIGHT; setShadowLayer(size * 0.08f, 0f, 0f, 0xAA000000.toInt())
-        }
+        // 8비트 도트 글꼴: 한 칸을 정수 픽셀로 그려서 경계가 또렷하다(사진 짧은 변의 약 3%가 글자 높이)
+        val cell = maxOf(1, Math.round(minOf(upW, upH) * 0.03f / PixelFont.ROWS))
+        val margin = cell * 7f
+        val left = upW - margin - PixelFont.widthCells(text) * cell
+        val top = upH - margin - PixelFont.ROWS * cell
         val canvas = Canvas(bmp)
         canvas.concat(m)
-        canvas.drawText(text, upW - size * 0.9f, upH - size * 0.9f, paint)
+        val ink = Paint().apply { color = 0xFFFF9A3C.toInt() }
+        PixelFont.forEachCell(text) { c, r -> val x = left + c * cell; val y = top + r * cell; val g = cell * (1f - PixelFont.DOT) / 2f; canvas.drawRect(x + g, y + g, x + cell - g, y + cell - g, ink) }
     }
 
     /** 흐림(세부 분리) 반경: 프리뷰 셰이더(1.5텍셀, 폭 약 1300px 기준)와 비슷한 비율로 맞춘다 */
@@ -196,11 +190,4 @@ object PhotoPipeline {
         }
     }
 
-    /** 필름 모드: 앱 전용 폴더(갤러리에 안 보임). 4단계에서 롤 단위 관리/현상으로 확장한다. */
-    private fun saveToPrivate(context: Context, file: File, name: String): String {
-        val dir = File(context.filesDir, "rolls/pending").apply { mkdirs() }
-        val dst = File(dir, name)
-        file.copyTo(dst, overwrite = false)
-        return "rolls/pending/$name"
-    }
 }
