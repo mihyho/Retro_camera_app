@@ -17,6 +17,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
@@ -69,38 +74,56 @@ import kotlin.math.ceil
 import kotlin.math.floor
 
 /**
- * 카메라 본체: 상단 바 아래 전체를 GL 화면 하나가 채우고, 그 위에 프리뷰 틀(4:5 고정, 둥근 모서리) · 필름 스트립 · 모드/셔터 줄을 얹는다.
- * 스트립 칩의 그림도 같은 GL 화면이 그린다(실시간 영상 + 그 필름 LUT). 세로는 위에서 아래로, 가로는 왼쪽 프리뷰 + 오른쪽 컨트롤.
+ * 카메라 본체: GL 화면 하나가 전체를 채우고, 그 위에 상단 바 · 프리뷰 틀(4:5 고정, 둥근 모서리) · 필름 스트립 · 모드/셔터 줄을 얹는다.
+ * 스트립 칩의 그림도 같은 GL 화면이 그린다(실시간 영상 + 그 필름 LUT).
+ * 세로는 위에서 아래로. 가로는 프리뷰를 화면 높이만큼 크게(상태바·내비게이션 바 뒤까지) 왼쪽에 두고, 상단 바와 컨트롤은 오른쪽에 둔다.
  */
 @Composable
 fun CameraBody(
-    c: AppController, glView: GLSurfaceView, onLibrary: () -> Unit, onShutter: () -> Unit, onGrid: () -> Unit,
+    c: AppController, glView: GLSurfaceView, topBar: @Composable () -> Unit,
+    onLibrary: () -> Unit, onShutter: () -> Unit, onGrid: () -> Unit,
     onZoomBy: (Float) -> Unit, onZoomStep: () -> Unit, onLoad: () -> Unit, modifier: Modifier = Modifier,
 ) {
     val land = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-    BoxWithConstraints(modifier.fillMaxSize().background(Ds.Bg).clipToBounds()) {
-        val d = LocalDensity.current
+    val d = LocalDensity.current
+    val sys = WindowInsets.systemBars.union(WindowInsets.displayCutout)
+    val insetTop = if (land) sys.getTop(d) else 0
+    val insetBottom = if (land) sys.getBottom(d) else 0
+    BoxWithConstraints(
+        modifier.fillMaxSize()
+            // 가로: 부모(시스템 바를 피한 영역)보다 위아래로 넓혀서 프리뷰를 화면 전체 높이로 쓴다
+            .then(if (!land) Modifier else Modifier.layout { m, cs ->
+                val p = m.measure(Constraints.fixed(cs.maxWidth, cs.maxHeight + insetTop + insetBottom))
+                layout(cs.maxWidth, cs.maxHeight) { p.place(0, -insetTop) }
+            })
+            .background(Ds.Bg).clipToBounds(),
+    ) {
         val w = constraints.maxWidth; val h = constraints.maxHeight
         val margin = with(d) { 8.dp.roundToPx() }
+        val topH = with(d) { 45.dp.roundToPx() }
         val band = with(d) { FILM_STRIP_HEIGHT.roundToPx() }
         val ctrl = with(d) { 123.dp.roundToPx() }
         val radius = with(d) { 26.dp.roundToPx() }
-        // 촬영 비율은 4:5 고정(세로로 들면 가로:세로 = 4:5)
+        // 촬영 비율은 4:5 고정: 세로로 들면 가로:세로 = 4:5, 가로로 들면 같은 비율을 눕힌 5:4
         val pH: Int; val pW: Int; val pX: Int; val pY: Int
         if (!land) {
-            pH = minOf((w - 2 * margin) * 5 / 4, h - band - ctrl).coerceAtLeast(0); pW = pH * 4 / 5; pX = (w - pW) / 2; pY = 0
+            pY = topH
+            pH = minOf((w - 2 * margin) * 5 / 4, h - topH - band - ctrl).coerceAtLeast(0); pW = pH * 4 / 5; pX = (w - pW) / 2
         } else {
-            pH = (h - 2 * margin).coerceAtLeast(0); pW = pH * 5 / 4; pX = margin; pY = margin // 가로로 들면 4:5를 눕힌 5:4
+            pY = margin; pH = (h - 2 * margin).coerceAtLeast(0); pW = pH * 5 / 4; pX = margin // 가로로 들면 4:5를 눕힌 5:4
         }
         val rx = if (land) pX + pW + margin else 0
         val rw = (w - rx).coerceAtLeast(0)
-        val stripY = if (land) ((h - band - ctrl) / 2).coerceAtLeast(0) else pY + pH
+        val barY = if (land) insetTop else 0
+        val stripY = if (land) insetTop + topH + ((h - insetTop - insetBottom - topH - band - ctrl) / 2).coerceAtLeast(0) else pY + pH
 
         AndroidView({ glView }, Modifier.fillMaxSize())
         if (c.perm == AppController.Perm.GRANTED) {
             LaunchedEffect(pX, pY, pW, pH, radius) { c.onPreviewRect?.invoke(intArrayOf(pX, pY, pW, pH, radius)) }
+            Box(Modifier.offset { IntOffset(rx, barY) }.width(with(d) { rw.toDp() })) { topBar() }
             Box(Modifier.offset { IntOffset(pX, pY) }.size(with(d) { pW.toDp() }, with(d) { pH.toDp() }).clip(RoundedCornerShape(26.dp))) {
-                Viewfinder(c, onZoomBy, onZoomStep, onLoad)
+                // 가로에서는 프리뷰가 상태바 뒤까지 올라가므로, 필름 칩이 상태바 글자와 겹치지 않게 내린다
+                Viewfinder(c, onZoomBy, onZoomStep, onLoad, with(d) { (insetTop - margin).coerceAtLeast(0).toDp() })
             }
             Column(Modifier.offset { IntOffset(rx, stripY) }.width(with(d) { rw.toDp() })) {
                 FilmStrip(c, origin = IntOffset(rx, stripY))
@@ -246,7 +269,7 @@ fun Controls(c: AppController, onLibrary: () -> Unit, onShutter: () -> Unit, onG
 // ───────────────────────── 뷰파인더 ─────────────────────────
 
 @Composable
-fun Viewfinder(c: AppController, onZoomBy: (Float) -> Unit, onZoomStep: () -> Unit, onLoad: () -> Unit) {
+fun Viewfinder(c: AppController, onZoomBy: (Float) -> Unit, onZoomStep: () -> Unit, onLoad: () -> Unit, chipInset: androidx.compose.ui.unit.Dp = 0.dp) {
     val s = c.state
     val noFilm = s.mode == Mode.FILM && s.roll == null
     val gestures = !c.drawerOpen && !noFilm && c.panel == null && !c.loadOpen
@@ -255,7 +278,7 @@ fun Viewfinder(c: AppController, onZoomBy: (Float) -> Unit, onZoomStep: () -> Un
         if (gestures) GestureLayer(onZoomBy)
         if (s.grid && !c.drawerOpen && !noFilm) GridLines()
         if (!c.drawerOpen && !noFilm) {
-            FilmChip(c.currentFilm, Modifier.align(Alignment.TopStart).padding(8.dp))
+            FilmChip(Ds.liveFilm ?: c.currentFilm, Modifier.align(Alignment.TopStart).padding(start = 8.dp, end = 8.dp, bottom = 8.dp, top = 8.dp + chipInset))
             if (s.stamp) Text(
                 c.stampText(), Ds.Stamp,
                 TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, fontWeight = FontWeight.Bold,

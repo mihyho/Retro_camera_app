@@ -158,6 +158,8 @@ class AppController(private val appContext: Context) {
     /** GL 렌더러에 알린다: 필름 스트립 칩의 위치(칸마다 x, y, 크기, 투명도 px), 프리뷰를 그릴 곳(x, y, w, h px) */
     var onStrip: ((FloatArray?) -> Unit)? = null
     var onPreviewRect: ((IntArray?) -> Unit)? = null
+    /** 스트립을 넘기는 중에 손가락에 가장 가까운 필름: 저장은 도착했을 때 한 번만 하고, 프리뷰 색감만 바로 바꾼다 */
+    var onLiveFilm: ((Film) -> Unit)? = null
 
     // ── 노출 보정 ──
     /** 노출 조정 창이 열려 있는지(십자키가 노출을 조정한다) */

@@ -24,6 +24,9 @@ import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.example.retrocamera.data.Film
 import com.example.retrocamera.data.Mode
 import kotlinx.coroutines.Dispatchers
@@ -72,6 +75,7 @@ class MainActivity : ComponentActivity() {
         controller.onFlashChange = { camera?.cameraControl?.enableTorch(it && !controller.lensFront) }
         controller.onStrip = { renderer.setStrip(it) }
         controller.onPreviewRect = { renderer.setPreview(it) }
+        controller.onLiveFilm = { f -> renderer.setLut(controller.lutFor(f)); renderer.setClarity(f.clarity) }
         controller.onZoomReset = { zoomTarget = 1f; camera?.cameraControl?.setZoomRatio(1f) }
         controller.onRequestPermission = {
             if (controller.perm == AppController.Perm.DENIED && !shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)) {
@@ -106,8 +110,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** 전체화면(몰입) 모드: 상태바·내비게이션 바를 숨긴다. 가장자리를 쓸면 잠깐 내려왔다가 저절로 다시 숨는다 */
+    private fun hideSystemBars() {
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) hideSystemBars() // 알림창을 내렸다 올리거나 다른 앱에서 돌아와도 다시 숨긴다
+    }
+
     override fun onResume() {
         super.onResume()
+        hideSystemBars()
         glView.onResume()
         // 앱 설정에서 권한을 허용하고 돌아온 경우
         if (controller.perm != AppController.Perm.GRANTED && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {

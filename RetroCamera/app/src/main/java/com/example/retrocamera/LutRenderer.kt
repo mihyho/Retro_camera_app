@@ -216,26 +216,31 @@ class LutRenderer(
         val sr = stripRects
         if (sr != null && gridTiles.isNotEmpty() && gridTex.size == gridTiles.size) {
             // 배열 끝의 4개는 스트립 영역 [왼쪽, 위, 오른쪽, 아래]: 칩이 스트립 밖(프리뷰 위)으로 나가 그려지지 않게 자른다
-            val ci = gridTiles.size * 4
+            val ci = gridTiles.size * 8
             if (sr.size >= ci + 4) {
                 val l = sr[ci].toInt(); val t = sr[ci + 1].toInt(); val r = sr[ci + 2].toInt(); val b = sr[ci + 3].toInt()
                 GLES30.glEnable(GLES30.GL_SCISSOR_TEST)
                 GLES30.glScissor(l, viewH - b, (r - l).coerceAtLeast(0), (b - t).coerceAtLeast(0))
             }
             for (i in gridTiles.indices) {
-                val o = i * 4
-                if (o + 3 >= sr.size) break
+                val o = i * 8
+                if (o + 7 >= sr.size) break
                 val s = sr[o + 2].toInt()
                 val x = sr[o].toInt()
                 if (s < 2 || x + s < 0 || x > viewW) continue
-                drawTile(x, viewH - (sr[o + 1].toInt() + s), s, s, gridTex[i], gridTiles[i].lut.size, gridTiles[i].clarity, true, sr[o + 3], s * 0.29f)
+                drawTile(
+                    x, viewH - (sr[o + 1].toInt() + s), s, s, gridTex[i], gridTiles[i].lut.size, gridTiles[i].clarity, true, sr[o + 3], s * 0.29f,
+                    sr[o + 4], sr[o + 5], sr[o + 6], sr[o + 7],
+                )
             }
             GLES30.glDisable(GLES30.GL_SCISSOR_TEST)
         }
     }
 
     /** 뷰포트 한 칸에 영상을 중앙 크롭으로 그린다. round>0이면 모서리를 둥글게(바깥은 그리지 않음), alpha<1이면 바탕색 쪽으로 흐리게 */
-    private fun drawTile(x: Int, y: Int, w: Int, h: Int, tex: Int, lutSize: Int, clarity: Float, lutOn: Boolean, alpha: Float = 1f, round: Float = 0f) {
+    private fun drawTile(x: Int, y: Int, w: Int, h: Int, tex: Int, lutSize: Int, clarity: Float, lutOn: Boolean, alpha: Float = 1f, round: Float = 0f,
+        ringW: Float = 0f, ringR: Float = 0f, ringG: Float = 0f, ringB: Float = 0f,
+    ) {
         GLES30.glViewport(x, y, w, h)
         // 화면 uv(0..1) -> 중앙 크롭 -> SurfaceTexture 변환.
         // 회전은 SurfaceTexture 변환 행렬에 이미 포함돼 있다(에뮬레이터에서 확인: rotationDegrees=90일 때
@@ -265,6 +270,8 @@ class LutRenderer(
         GLES30.glUniform2f(GLES30.glGetUniformLocation(program, "uTexel"), 1f / bufferW, 1f / bufferH)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uAlpha"), alpha)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uRound"), round)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uRingW"), ringW)
+        GLES30.glUniform3f(GLES30.glGetUniformLocation(program, "uRing"), ringR, ringG, ringB)
         GLES30.glUniform2f(GLES30.glGetUniformLocation(program, "uHalf"), w / 2f, h / 2f)
         GLES30.glUniform3f(GLES30.glGetUniformLocation(program, "uBg"), BG_R, BG_G, BG_B)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uClarity"), clarity)
@@ -351,6 +358,8 @@ uniform float uClarity;
 uniform float uClaritySigma;
 uniform float uAlpha;
 uniform float uRound;
+uniform float uRingW;
+uniform vec3 uRing;
 uniform vec2 uHalf;
 uniform vec3 uBg;
 in vec2 vUv;
@@ -361,9 +370,11 @@ vec3 grade(vec3 c) {
     return texture(uLut, p).rgb;
 }
 void main() {
+    float sd = -1000.0; // 둥근 사각형 안쪽이면 음수(가장자리까지의 거리)
     if (uRound > 0.0) {
         vec2 q = abs(vPos) * uHalf - (uHalf - vec2(uRound));
-        if (length(max(q, 0.0)) > uRound) discard;
+        sd = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - uRound;
+        if (sd > 0.0) discard;
     }
     vec3 c0 = texture(uCam, vUv).rgb;
     vec2 o = uTexel * 1.5;
@@ -392,7 +403,9 @@ void main() {
     vec3 gb = grade(base);
     vec3 dIn = c - base;
     vec3 graded = gb + clamp(grade(c) - gb, -abs(dIn), abs(dIn));
-    outColor = vec4(mix(uBg, mix(c, graded, uLutOn), uAlpha), 1.0);
+    vec3 rgb = mix(c, graded, uLutOn);
+    if (uRingW > 0.0) rgb = mix(rgb, uRing, smoothstep(-uRingW - 0.5, -uRingW + 0.5, sd)); // 선택된 칩의 링
+    outColor = vec4(mix(uBg, rgb, uAlpha), 1.0);
 }"""
     }
 }

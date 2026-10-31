@@ -20,7 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 
-/** 다크 글래스 토큰. 포인트 색(Accent)은 지금 고른 필름 색으로 바뀐다(CameraScreen이 [filmColor]를 갱신). */
+/** 다크 글래스 토큰. 포인트 색(Accent)은 지금 고른 필름 색으로 바뀐다([liveFilm]). */
 object Ds {
     val Bg = Color(0xFF161410)
     val Bg2 = Color(0xFF0A0908)
@@ -35,12 +35,13 @@ object Ds {
     val Danger = Color(0xFFFF6B5E)
     val Stamp = Color(0xFFFF9A3C)
 
-    var filmColor by mutableStateOf(Color(0xFFE8B84A))
-    val Accent get() = filmColor
-    val AccentPress get() = lerp(filmColor, Color.Black, .15f)
+    /** 지금 보이는 필름. 스트립을 넘기는 중에는 손가락에 가장 가까운 필름이라, 포인트 색이 바로바로 따라 바뀐다 */
+    var liveFilm by mutableStateOf<Film?>(null)
+    val Accent get() = liveFilm?.glow() ?: Color(0xFFE8B84A)
+    val AccentPress get() = lerp(Accent, Color.Black, .15f)
     /** 어두운 바탕 위 글자/링크는 포인트 색 그대로 */
-    val AccentInk get() = filmColor
-    val AccentBorder get() = filmColor
+    val AccentInk get() = Accent
+    val AccentBorder get() = Accent
 }
 
 /** 필름별 포인트 색. Film.accent는 흰 바탕용이라 어둡다 */

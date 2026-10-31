@@ -72,13 +72,19 @@ fun FilmStrip(c: AppController, origin: IntOffset, modifier: Modifier = Modifier
     val chip = with(density) { CHIP.toPx() }
     val topPad = with(density) { TOP_PAD.toPx() }
     val band = with(density) { FILM_STRIP_HEIGHT.toPx() }
+    val ringPx = with(density) { 2.5.dp.toPx() }
     val pos = remember { Animatable(-cur * step) }
     var raw by remember { mutableFloatStateOf(0f) }
     var width by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
-    val spec = spring<Float>(dampingRatio = .8f, stiffness = 380f)
+    val spec = spring<Float>(dampingRatio = .8f, stiffness = 280f) // 목업의 스프링(감쇠 .8, 응답 .38s)과 같다
     // 손가락 위치에 가장 가까운 칸: 필름이 실제로 바뀌기 전에도 링이 먼저 따라온다
     val near by remember { derivedStateOf { (-pos.value / step).roundToInt().coerceIn(0, films.size - 1) } }
+
+    // 넘기는 동안 가장 가까운 필름의 색(포인트 색·프리뷰 색감)이 바로바로 따라온다. 롤이 장전돼 있으면 필름이 안 바뀌니 건드리지 않는다
+    LaunchedEffect(near, locked, hidden) {
+        if (!locked && !hidden) { Ds.liveFilm = films[near]; c.onLiveFilm?.invoke(films[near]) }
+    }
 
     // 바깥(그리드 등)에서 필름이 바뀌어도 따라간다. 드래그 직후에는 같은 목표라 속도가 이어진다
     LaunchedEffect(cur, step) { pos.animateTo(-cur * step, spec) }
@@ -87,17 +93,24 @@ fun FilmStrip(c: AppController, origin: IntOffset, modifier: Modifier = Modifier
     LaunchedEffect(hidden, width, step, origin) {
         if (hidden || width == 0) { c.onStrip?.invoke(null); return@LaunchedEffect }
         snapshotFlow { pos.value }.collect { p ->
-            val r = FloatArray(films.size * 4 + 4)
+            // 칸마다 8개: x, y, 크기, 투명도, 링 두께(0이면 없음), 링 색 r g b. 링도 GL이 같은 프레임에 그려서 영상과 어긋나지 않는다
+            val r = FloatArray(films.size * 8 + 4)
+            val ringAt = if (locked) cur else (-p / step).roundToInt().coerceIn(0, films.size - 1)
             for (i in films.indices) {
                 val d = min(abs(p + i * step) / step, 1f)
                 val size = chip * (1f - .1f * d)
                 val local = (width - step) / 2f + p + i * step + step / 2f
-                r[i * 4] = origin.x + local - size / 2f
-                r[i * 4 + 1] = origin.y + topPad + (chip - size) / 2f // GL 화면 위쪽 기준
-                r[i * 4 + 2] = size
-                r[i * 4 + 3] = (1f - .45f * d) * edgeFade(local, width)
+                val o = i * 8
+                r[o] = origin.x + local - size / 2f
+                r[o + 1] = origin.y + topPad + (chip - size) / 2f // GL 화면 위쪽 기준
+                r[o + 2] = size
+                r[o + 3] = (1f - .45f * d) * edgeFade(local, width)
+                if (i == ringAt) {
+                    val g = films[i].glow()
+                    r[o + 4] = ringPx; r[o + 5] = g.red; r[o + 6] = g.green; r[o + 7] = g.blue
+                }
             }
-            val k = films.size * 4 // 스트립 영역(칩이 이 밖으로 그려지지 않게)
+            val k = films.size * 8 // 스트립 영역(칩이 이 밖으로 그려지지 않게)
             r[k] = origin.x.toFloat(); r[k + 1] = origin.y.toFloat()
             r[k + 2] = (origin.x + width).toFloat(); r[k + 3] = origin.y + band
             c.onStrip?.invoke(r)
@@ -146,11 +159,8 @@ fun FilmStrip(c: AppController, origin: IntOffset, modifier: Modifier = Modifier
                 val d = { min(abs(pos.value + i * step) / step, 1f) }
                 val fade = { edgeFade((width - step) / 2f + pos.value + i * step + step / 2f, width) }
                 Column(Modifier.width(STEP).tap { pick(i) }, horizontalAlignment = Alignment.CenterHorizontally) {
-                    // 그림은 GL이 그린다. 여기는 링과 크기/투명도만(GL 쪽 계산과 같은 식)
-                    Box(
-                        Modifier.size(CHIP).graphicsLayer { scaleX = 1f - .1f * d(); scaleY = scaleX; alpha = (1f - .45f * d()) * fade() }
-                            .then(if (i == near) Modifier.border(2.5.dp, Ds.Accent, RoundedCornerShape(18.dp)) else Modifier),
-                    )
+                    // 그림과 링은 GL이 그린다(같은 프레임에 그려야 안 어긋난다). 여기는 자리만 잡는다
+                    Box(Modifier.size(CHIP))
                     val short = f.displayName.substringBefore(' ').filter { !it.isDigit() }.ifEmpty { f.displayName }
                     Text(
                         if (short.length + 4 <= 10) "$short ${f.iso}" else short, // 칸(74dp)에 안 들어가면 ISO는 뺀다
