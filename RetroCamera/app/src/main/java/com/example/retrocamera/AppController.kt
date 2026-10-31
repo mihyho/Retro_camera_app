@@ -155,6 +155,9 @@ class AppController(private val appContext: Context) {
     }
 
     var onZoomReset: (() -> Unit)? = null
+    /** GL 렌더러에 알린다: 필름 스트립 칩의 위치(칸마다 x, y, 크기, 투명도 px), 프리뷰를 그릴 곳(x, y, w, h px) */
+    var onStrip: ((FloatArray?) -> Unit)? = null
+    var onPreviewRect: ((IntArray?) -> Unit)? = null
 
     // ── 노출 보정 ──
     /** 노출 조정 창이 열려 있는지(십자키가 노출을 조정한다) */

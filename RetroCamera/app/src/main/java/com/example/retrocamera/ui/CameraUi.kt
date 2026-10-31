@@ -15,7 +15,11 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -65,50 +69,48 @@ import kotlin.math.ceil
 import kotlin.math.floor
 
 /**
- * 카메라 화면 뼈대: 상단 바 · 뷰파인더(3:4) · 하단. 세로/가로 모두 같은 `Layout` 하나로 배치만 바꾼다
- * (GLSurfaceView가 다른 부모로 옮겨지면 GL 컨텍스트가 새로 만들어져 화면이 깜빡이기 때문).
+ * 카메라 본체: 상단 바 아래 전체를 GL 화면 하나가 채우고, 그 위에 프리뷰 틀(4:5 고정, 둥근 모서리) · 필름 스트립 · 모드/셔터 줄을 얹는다.
+ * 스트립 칩의 그림도 같은 GL 화면이 그린다(실시간 영상 + 그 필름 LUT). 세로는 위에서 아래로, 가로는 왼쪽 프리뷰 + 오른쪽 컨트롤.
  */
 @Composable
-fun CameraLayout(
-    top: @Composable () -> Unit,
-    viewfinder: @Composable () -> Unit,
-    bottom: @Composable (landscape: Boolean) -> Unit,
+fun CameraBody(
+    c: AppController, glView: GLSurfaceView, onLibrary: () -> Unit, onShutter: () -> Unit, onGrid: () -> Unit,
+    onZoomBy: (Float) -> Unit, onZoomStep: () -> Unit, onLoad: () -> Unit, modifier: Modifier = Modifier,
 ) {
     val land = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-    Layout(
-        {
-            Box(Modifier.layoutId("top")) { top() }
-            Box(Modifier.layoutId("vf")) { viewfinder() }
-            Box(Modifier.layoutId("bottom")) { bottom(land) }
-        },
-        Modifier.fillMaxSize(),
-    ) { measurables, cs ->
-        val w = cs.maxWidth; val h = cs.maxHeight
-        fun find(id: String) = measurables.first { it.layoutId == id }
-        val topP = find("top").measure(Constraints.fixedWidth(w))
-        val topH = topP.height
+    BoxWithConstraints(modifier.fillMaxSize().background(Ds.Bg).clipToBounds()) {
+        val d = LocalDensity.current
+        val w = constraints.maxWidth; val h = constraints.maxHeight
+        val margin = with(d) { 8.dp.roundToPx() }
+        val band = with(d) { FILM_STRIP_HEIGHT.roundToPx() }
+        val ctrl = with(d) { 123.dp.roundToPx() }
+        val radius = with(d) { 26.dp.roundToPx() }
+        // 촬영 비율은 4:5 고정(세로로 들면 가로:세로 = 4:5)
+        val pH: Int; val pW: Int; val pX: Int; val pY: Int
         if (!land) {
-            // 뷰파인더는 폭을 꽉 채운 3:4. 하단이 최소 123dp는 남게 한다
-            val vfH = minOf(w * 4 / 3, h - topH - 123.dp.roundToPx()).coerceAtLeast(0)
-            val vfW = vfH * 3 / 4
-            val vfP = find("vf").measure(Constraints.fixed(vfW, vfH))
-            val bP = find("bottom").measure(Constraints.fixed(w, (h - topH - vfH).coerceAtLeast(0)))
-            layout(w, h) {
-                topP.place(0, 0)
-                vfP.place((w - vfW) / 2, topH)
-                bP.place(0, topH + vfH)
+            pH = minOf((w - 2 * margin) * 5 / 4, h - band - ctrl).coerceAtLeast(0); pW = pH * 4 / 5; pX = (w - pW) / 2; pY = 0
+        } else {
+            pH = (h - 2 * margin).coerceAtLeast(0); pW = pH * 5 / 4; pX = margin; pY = margin // 가로로 들면 4:5를 눕힌 5:4
+        }
+        val rx = if (land) pX + pW + margin else 0
+        val rw = (w - rx).coerceAtLeast(0)
+        val stripY = if (land) ((h - band - ctrl) / 2).coerceAtLeast(0) else pY + pH
+
+        AndroidView({ glView }, Modifier.fillMaxSize())
+        if (c.perm == AppController.Perm.GRANTED) {
+            LaunchedEffect(pX, pY, pW, pH, radius) { c.onPreviewRect?.invoke(intArrayOf(pX, pY, pW, pH, radius)) }
+            Box(Modifier.offset { IntOffset(pX, pY) }.size(with(d) { pW.toDp() }, with(d) { pH.toDp() }).clip(RoundedCornerShape(26.dp))) {
+                Viewfinder(c, onZoomBy, onZoomStep, onLoad)
+            }
+            Column(Modifier.offset { IntOffset(rx, stripY) }.width(with(d) { rw.toDp() })) {
+                FilmStrip(c, origin = IntOffset(rx, stripY))
+                Controls(
+                    c, onLibrary, onShutter, onGrid,
+                    if (land) Modifier.height(123.dp) else Modifier.height(with(d) { (h - stripY - band).coerceAtLeast(0).toDp() }),
+                )
             }
         } else {
-            val availH = h - topH
-            val vfH = minOf(availH, (w - 170.dp.roundToPx()) * 3 / 4).coerceAtLeast(0)
-            val vfW = vfH * 4 / 3
-            val vfP = find("vf").measure(Constraints.fixed(vfW, vfH))
-            val bP = find("bottom").measure(Constraints.fixed((w - vfW).coerceAtLeast(0), availH))
-            layout(w, h) {
-                topP.place(0, 0)
-                vfP.place(0, topH)
-                bP.place(vfW, topH)
-            }
+            PermissionOverlay(c)
         }
     }
 }
@@ -130,11 +132,11 @@ fun TopBar(c: AppController, onSettings: () -> Unit, onLibrary: () -> Unit) {
                 // 플래시
                 TopIcon(alpha = if (c.flashAvailable) 1f else .35f, onClick = c::toggleFlash) {
                     Row(
-                        Modifier.height(26.dp).clip(RoundedCornerShape(13.dp)).background(if (c.flashOn) Ds.Accent else Color.Transparent).padding(horizontal = if (c.flashOn) 8.dp else 4.dp),
+                        Modifier.height(26.dp).clip(RoundedCornerShape(13.dp)).background(if (c.flashOn) Ds.Accent else Color.Transparent).padding(horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(Ico.BOLT, 19.dp, Ds.Ink, fill = c.flashOn)
-                        if (c.flashOn) Text("켬", Ds.Ink, t13, Modifier.padding(start = 3.dp))
+                        // 켜진 것은 색으로만 알린다(글자 없음)
+                        Icon(Ico.BOLT, 19.dp, if (c.flashOn) Ds.OnAccent else Ds.Ink, fill = c.flashOn)
                     }
                 }
                 // 노출
@@ -144,18 +146,23 @@ fun TopBar(c: AppController, onSettings: () -> Unit, onLibrary: () -> Unit) {
                         Modifier.height(26.dp).clip(RoundedCornerShape(13.dp)).background(if (evActive) Ds.Accent else Color.Transparent).padding(horizontal = if (evActive) 8.dp else 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(Ico.EXPOSURE, 19.dp, Ds.Ink)
-                        if (c.exposureIndex != 0) Text(evText(c.exposureIndex, c.exposureStep), Ds.Ink, t13, Modifier.padding(start = 3.dp), softWrap = false)
+                        Icon(Ico.EXPOSURE, 19.dp, if (evActive) Ds.OnAccent else Ds.Ink)
+                        if (c.exposureIndex != 0) Text(evText(c.exposureIndex, c.exposureStep), Ds.OnAccent, t13, Modifier.padding(start = 3.dp), softWrap = false)
                     }
                 }
             }
             // 카운터: 탭하면 사진 보관함
-            Row(Modifier.align(Alignment.Center).height(44.dp).tap(onClick = onLibrary), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.align(Alignment.Center).height(34.dp).clip(RoundedCornerShape(17.dp)).background(Ds.Glass)
+                    .border(1.dp, Ds.Line, RoundedCornerShape(17.dp)).tap(onClick = onLibrary).padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.padding(end = 8.dp).size(7.dp).clip(CircleShape).background(Ds.Accent))
                 when {
-                    s.mode == Mode.SINGLE -> Text("SINGLE", Ds.Ink, t17m)
-                    roll == null -> Text("필름 없음", Ds.Ink, t17m)
+                    s.mode == Mode.SINGLE -> Text("SINGLE", Ds.Ink, t15.copy(fontWeight = FontWeight.Medium))
+                    roll == null -> Text("필름 없음", Ds.Ink, t15.copy(fontWeight = FontWeight.Medium))
                     else -> {
-                        Text("${roll.remaining}", Ds.Ink, t17m)
+                        Text("${roll.remaining}", Ds.Ink, t15.copy(fontWeight = FontWeight.Medium))
                         Text(" / ${roll.total}", Ds.Sub, t13)
                     }
                 }
@@ -192,58 +199,45 @@ private fun Shutter(onClick: () -> Unit) {
     val src = remember { MutableInteractionSource() }
     val pressed by src.collectIsPressedAsState()
     Box(
-        Modifier.size(68.dp).graphicsLayer { val k = if (pressed) .96f else 1f; scaleX = k; scaleY = k }
-            .clip(CircleShape).border(3.dp, Ds.Line, CircleShape)
+        Modifier.size(76.dp).graphicsLayer { val k = if (pressed) .96f else 1f; scaleX = k; scaleY = k }
+            .clip(CircleShape).border(3.dp, Ds.Ink.copy(alpha = .85f), CircleShape)
             .clickable(src, null, onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { Box(Modifier.size(54.dp).clip(CircleShape).background(if (pressed) Ds.AccentPress else Ds.Accent)) }
+    ) { Box(Modifier.size(62.dp).clip(CircleShape).background(if (pressed) Ds.AccentPress else Ds.Accent)) }
 }
 
+/** 모드(FILM/SINGLE) 줄 + 셔터 줄. 보관함 버튼과 필름 그리드 버튼은 어느 방향에서나 셔터 좌우에 있다 */
 @Composable
-fun BottomBar(c: AppController, landscape: Boolean, onLibrary: () -> Unit, onShutter: () -> Unit, onGrid: () -> Unit) {
+fun Controls(c: AppController, onLibrary: () -> Unit, onShutter: () -> Unit, onGrid: () -> Unit, modifier: Modifier = Modifier) {
     val s = c.state
     val roll = s.roll
-    val modes: @Composable () -> Unit = {
-        Row(horizontalArrangement = Arrangement.spacedBy(if (landscape) 4.dp else 13.dp)) {
-            ModeLabel("FILM", s.mode == Mode.FILM) { c.setMode(Mode.FILM) }
-            ModeLabel("SINGLE", s.mode == Mode.SINGLE) { c.setMode(Mode.SINGLE) }
-        }
-    }
-    val library: @Composable () -> Unit = {
-        Box(
-            Modifier.size(44.dp).clip(RoundedCornerShape(4.dp)).background(Ds.Bg2).border(0.5.dp, Ds.Line, RoundedCornerShape(4.dp)).tap(onClick = onLibrary),
-            contentAlignment = Alignment.Center,
-        ) {
-            val last = s.singleShots.firstOrNull()
-            when {
-                s.mode == Mode.SINGLE && last != null -> Thumb(last, 120, Modifier.fillMaxSize())
-                s.mode == Mode.FILM && roll != null -> Text("${roll.shots.size}", Ds.Ink, t17m)
-                else -> Icon(Ico.IMAGES, 22.dp, Ds.Ink)
+    val libShape = RoundedCornerShape(12.dp)
+    Column(modifier) {
+        Box(Modifier.fillMaxWidth().height(34.dp), contentAlignment = Alignment.Center) {
+            Row(horizontalArrangement = Arrangement.spacedBy(13.dp)) {
+                ModeLabel("FILM", s.mode == Mode.FILM) { c.setMode(Mode.FILM) }
+                ModeLabel("SINGLE", s.mode == Mode.SINGLE) { c.setMode(Mode.SINGLE) }
             }
         }
-    }
-    val grid: @Composable () -> Unit = {
-        Box(
-            Modifier.size(44.dp).tap(onClick = onGrid), contentAlignment = Alignment.Center,
-        ) {
-            Box(Modifier.size(36.dp).clip(CircleShape).background(if (c.drawerOpen) Ds.Accent else Color.Transparent), contentAlignment = Alignment.Center) {
-                Icon(Ico.CIRCLES, 22.dp, Ds.Ink)
+        Row(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 30.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                Box(
+                    Modifier.size(50.dp).clip(libShape).background(Ds.Bg2).border(1.5.dp, Ds.Line, libShape).tap(onClick = onLibrary),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val last = s.singleShots.firstOrNull()
+                    when {
+                        s.mode == Mode.SINGLE && last != null -> Thumb(last, 120, Modifier.fillMaxSize())
+                        s.mode == Mode.FILM && roll != null -> Text("${roll.shots.size}", Ds.Ink, t17m)
+                        else -> Icon(Ico.IMAGES, 22.dp, Ds.Ink)
+                    }
+                }
             }
-        }
-    }
-    Column(Modifier.fillMaxSize().background(Ds.Bg)) {
-        Hairline()
-        if (!landscape) {
-            Box(Modifier.fillMaxWidth().height(34.dp), contentAlignment = Alignment.Center) { modes() }
-            Row(Modifier.fillMaxWidth().weight(1f).padding(start = 22.dp, end = 22.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) { library() }
-                Shutter(onShutter)
-                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) { grid() }
-            }
-        } else {
-            Box(Modifier.fillMaxWidth().padding(top = 6.dp), contentAlignment = Alignment.Center) { modes() }
-            Column(Modifier.fillMaxWidth().weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceEvenly) {
-                library(); Shutter(onShutter); grid()
+            Shutter(onShutter)
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                Box(Modifier.size(50.dp).clip(CircleShape).background(if (c.drawerOpen) Ds.Accent else Color.Transparent).tap(onClick = onGrid), contentAlignment = Alignment.Center) {
+                    Icon(Ico.CIRCLES, 26.dp, if (c.drawerOpen) Ds.OnAccent else Ds.Ink)
+                }
             }
         }
     }
@@ -252,67 +246,51 @@ fun BottomBar(c: AppController, landscape: Boolean, onLibrary: () -> Unit, onShu
 // ───────────────────────── 뷰파인더 ─────────────────────────
 
 @Composable
-fun Viewfinder(c: AppController, glView: GLSurfaceView, onZoomBy: (Float) -> Unit, onZoomStep: () -> Unit, onLoad: () -> Unit) {
+fun Viewfinder(c: AppController, onZoomBy: (Float) -> Unit, onZoomStep: () -> Unit, onLoad: () -> Unit) {
     val s = c.state
     val noFilm = s.mode == Mode.FILM && s.roll == null
-    val gestures = c.perm == AppController.Perm.GRANTED && !c.drawerOpen && !noFilm && c.panel == null && !c.loadOpen
-    Box(Modifier.fillMaxSize().background(Ds.Neutral).clipToBounds()) {
-        AndroidView({ glView }, Modifier.fillMaxSize())
-        if (c.perm == AppController.Perm.GRANTED) {
-            if (gestures) GestureLayer(onZoomBy, onSwipe = { c.cycleFilm(it) })
-            if (s.grid && !c.drawerOpen && !noFilm) GridLines()
-            if (!c.drawerOpen && !noFilm) {
-                FilmChip(c.currentFilm, Modifier.align(Alignment.TopStart).padding(8.dp))
-                if (s.stamp) Text(
-                    c.stampText(), Ds.Stamp,
-                    TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                        shadow = androidx.compose.ui.graphics.Shadow(Color(0x99FF781E), blurRadius = 8f)),
-                    Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = if (c.exposureOpen) 86.dp else 10.dp), softWrap = false,
-                )
-                if (c.zoomMax > 1.01f) ZoomHud(c.zoomRatio, onZoomStep, Modifier.align(Alignment.BottomCenter).padding(bottom = if (c.exposureOpen) 92.dp else 12.dp))
-            }
-            if (c.drawerOpen) FilmGrid(c)
-            if (noFilm) NoFilmOverlay(onLoad)
-            if (c.exposureOpen) ExposurePanel(c, Modifier.align(Alignment.BottomCenter))
-            Shot(c.flashTrigger)
-            if (c.screenFlash) Box(Modifier.fillMaxSize().background(Color.White))
-        } else {
-            PermissionOverlay(c)
+    val gestures = !c.drawerOpen && !noFilm && c.panel == null && !c.loadOpen
+    // 영상은 GL이 이 뒤에서 그린다. 여기는 프리뷰 위에 얹는 요소들
+    Box(Modifier.fillMaxSize()) {
+        if (gestures) GestureLayer(onZoomBy)
+        if (s.grid && !c.drawerOpen && !noFilm) GridLines()
+        if (!c.drawerOpen && !noFilm) {
+            FilmChip(c.currentFilm, Modifier.align(Alignment.TopStart).padding(8.dp))
+            if (s.stamp) Text(
+                c.stampText(), Ds.Stamp,
+                TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                    shadow = androidx.compose.ui.graphics.Shadow(Color(0x99FF781E), blurRadius = 8f)),
+                Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = if (c.exposureOpen) 86.dp else 10.dp), softWrap = false,
+            )
+            if (c.zoomMax > 1.01f) ZoomHud(c.zoomRatio, onZoomStep, Modifier.align(Alignment.BottomCenter).padding(bottom = if (c.exposureOpen) 92.dp else 12.dp))
         }
+        if (c.drawerOpen) FilmGrid(c)
+        if (noFilm) NoFilmOverlay(onLoad)
+        if (c.exposureOpen) ExposurePanel(c, Modifier.align(Alignment.BottomCenter))
+        Shot(c.flashTrigger)
+        if (c.screenFlash) Box(Modifier.fillMaxSize().background(Color.White))
     }
 }
 
-/** 핀치로 확대/축소, 한 손가락으로 60dp 이상 좌우로 밀면 필름 전환 */
+/** 두 손가락 핀치로 확대/축소(필름은 아래 스트립으로 바꾼다) */
 @Composable
-private fun GestureLayer(onZoomBy: (Float) -> Unit, onSwipe: (Int) -> Unit) {
+private fun GestureLayer(onZoomBy: (Float) -> Unit) {
     val zoom = rememberUpdatedState(onZoomBy)
-    val swipe = rememberUpdatedState(onSwipe)
     Box(
         Modifier.fillMaxSize()
             .pointerInput(Unit) {
-                val threshold = 60.dp.toPx()
                 awaitEachGesture {
-                    val first = awaitFirstDown(requireUnconsumed = false)
-                    var dx = 0f; var dy = 0f; var multi = false; var prev = 0f; var swiping = false
-                    val slop = viewConfiguration.touchSlop
+                    awaitFirstDown(requireUnconsumed = false)
+                    var prev = 0f
                     do {
                         val ev = awaitPointerEvent()
                         val down = ev.changes.filter { it.pressed }
                         if (down.size >= 2) {
-                            if (swiping) continue // 좌우로 넘기는 중에 닿은 두 번째 손가락은 확대로 치지 않는다
-                            multi = true
                             val d = (down[0].position - down[1].position).getDistance()
                             if (prev > 0f && d > 0f) zoom.value(d / prev)
                             prev = d
-                        } else {
-                            prev = 0f
-                            if (!multi && down.size == 1) {
-                                dx = down[0].position.x - first.position.x; dy = down[0].position.y - first.position.y
-                                if (abs(dx) > slop && abs(dx) > abs(dy)) swiping = true
-                            }
-                        }
+                        } else prev = 0f
                     } while (ev.changes.any { it.pressed })
-                    if (!multi && abs(dx) > threshold && abs(dx) > abs(dy) * 1.5f) swipe.value(if (dx < 0) 1 else -1)
                 }
             },
     )
@@ -335,7 +313,7 @@ fun filmTitle(f: Film) = if (f.displayName.last().isDigit()) f.displayName else 
 @Composable
 private fun FilmChip(film: Film, modifier: Modifier) {
     Row(
-        modifier.height(22.dp).clip(RoundedCornerShape(11.dp)).background(Color.White.copy(alpha = .88f)).padding(horizontal = 8.dp),
+        modifier.height(22.dp).clip(RoundedCornerShape(11.dp)).background(Ds.Glass).padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(6.dp).clip(CircleShape).background(Color(film.accent)))
@@ -346,8 +324,8 @@ private fun FilmChip(film: Film, modifier: Modifier) {
 @Composable
 private fun ZoomHud(zoom: Float, onClick: () -> Unit, modifier: Modifier) {
     Text(
-        ZoomMath.format(zoom), Ds.Ink, t13.copy(fontWeight = FontWeight.Medium),
-        modifier.clip(RoundedCornerShape(50)).background(if (zoom > 1.02f) Ds.Accent else Color.White.copy(alpha = .88f))
+        ZoomMath.format(zoom), if (zoom > 1.02f) Ds.OnAccent else Ds.Ink, t13.copy(fontWeight = FontWeight.Medium),
+        modifier.clip(RoundedCornerShape(50)).background(if (zoom > 1.02f) Ds.Accent else Ds.Glass)
             .tap(onClick = onClick).padding(horizontal = 12.dp, vertical = 6.dp),
     )
 }
@@ -374,7 +352,7 @@ private fun FilmGrid(c: AppController) {
                 repeat(GRID_COLS) { col ->
                     val f = films.getOrNull(r * GRID_COLS + col)
                     if (f == null) {
-                        Box(Modifier.weight(1f).fillMaxHeight().background(Color.White))
+                        Box(Modifier.weight(1f).fillMaxHeight().background(Ds.Bg))
                     } else {
                         val roll = s.roll
                         val locked = s.mode == Mode.FILM && roll != null && roll.film != f
@@ -384,10 +362,10 @@ private fun FilmGrid(c: AppController) {
                             else -> c.pendingFilm == f
                         }
                         Box(
-                            Modifier.weight(1f).fillMaxHeight().border(0.5.dp, Color.White)
+                            Modifier.weight(1f).fillMaxHeight().border(0.5.dp, Ds.Bg)
                                 .tap { if (current) c.closeDrawer() else if (locked) c.lockedFilmTapped() else { c.takeFilm(f); c.showToast(f.displayName) } },
                         ) {
-                            if (locked) Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = .6f)))
+                            if (locked) Box(Modifier.fillMaxSize().background(Ds.Bg.copy(alpha = .6f)))
                             Text(
                                 f.displayName, Color.White, t11.copy(fontWeight = FontWeight.Medium, textAlign = TextAlign.Center),
                                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()
@@ -414,7 +392,7 @@ private fun ExposurePanel(c: AppController, modifier: Modifier) {
     val range = c.exposureRange
     val lo = if (step > 0f) maxOf(range.first, ceil(-2f / step).toInt()) else 0
     val hi = if (step > 0f) minOf(range.last, floor(2f / step).toInt()) else 0
-    Column(modifier.fillMaxWidth().background(Color.White.copy(alpha = .94f))) {
+    Column(modifier.fillMaxWidth().background(Ds.Glass)) {
         Hairline()
         Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -432,7 +410,7 @@ private fun NoFilmOverlay(onLoad: () -> Unit) {
     val src = remember { MutableInteractionSource() }
     val pressed by src.collectIsPressedAsState()
     Column(
-        Modifier.fillMaxSize().background(Color.White.copy(alpha = .9f)).tap { /* 아래 뷰파인더로 탭이 새지 않게 */ }.padding(24.dp),
+        Modifier.fillMaxSize().background(Ds.Bg.copy(alpha = .9f)).tap { /* 아래 뷰파인더로 탭이 새지 않게 */ }.padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
     ) {
         Text("필름이 없어요", Ds.Ink, t17m)
@@ -442,7 +420,7 @@ private fun NoFilmOverlay(onLoad: () -> Unit) {
             Modifier.height(36.dp).clip(RoundedCornerShape(18.dp)).background(if (pressed) Ds.AccentPress else Ds.Accent)
                 .clickable(src, null, onClick = onLoad).padding(horizontal = 22.dp),
             contentAlignment = Alignment.Center,
-        ) { Text("필름 넣기", Ds.Ink, sansStyle(15.sp, FontWeight.Medium)) }
+        ) { Text("필름 넣기", Ds.OnAccent, sansStyle(15.sp, FontWeight.Medium)) }
     }
 }
 
@@ -466,6 +444,6 @@ private fun PermissionOverlay(c: AppController) {
             Modifier.height(40.dp).clip(RoundedCornerShape(20.dp)).background(if (pressed) Ds.AccentPress else Ds.Accent)
                 .clickable(src, null) { c.onRequestPermission?.invoke() }.padding(horizontal = 26.dp),
             contentAlignment = Alignment.Center,
-        ) { Text(if (denied) "다시 시도" else "카메라 켜기", Ds.Ink, sansStyle(15.sp, FontWeight.Medium)) }
+        ) { Text(if (denied) "다시 시도" else "카메라 켜기", Ds.OnAccent, sansStyle(15.sp, FontWeight.Medium)) }
     }
 }

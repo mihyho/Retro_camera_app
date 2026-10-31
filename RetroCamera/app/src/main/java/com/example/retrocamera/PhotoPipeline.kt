@@ -29,8 +29,9 @@ object PhotoPipeline {
             inMutable = true
             inPreferredConfig = Bitmap.Config.ARGB_8888
         }
-        val bmp = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, opts)
+        val full = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, opts)
             ?: throw IllegalStateException("촬영본 디코딩 실패")
+        val bmp = cropToFourFive(full, rotationDegrees)
 
         // 필름의 룩: 색감(LUT) + 명료도 + 그레인. 명료도와 그레인 값은 필름마다 정해져 있다(Film.clarity, Film.grain)
         applyLut(bmp, lut, film.clarity, if (grainOn) film.grain else 0f)
@@ -55,6 +56,30 @@ object PhotoPipeline {
         } finally {
             tmp.delete()
         }
+    }
+
+    /**
+     * 촬영 비율은 4:5 고정(가로로 들면 5:4). 똑바로 세웠을 때(EXIF 회전 적용 후) 가운데를 그 비율로 자른다.
+     * 픽셀은 센서 방향 그대로라 회전이 90/270이면 가로·세로를 바꿔서 자를 영역을 구한다(뷰파인더의 중앙 크롭과 같은 영역).
+     */
+    fun cropToFourFive(src: Bitmap, rotationDegrees: Int): Bitmap {
+        val odd = ((rotationDegrees % 360 + 360) % 360) % 180 != 0
+        val dw = if (odd) src.height else src.width
+        val dh = if (odd) src.width else src.height
+        val cw: Int; val ch: Int // 똑바로 섰을 때의 자를 크기. 세로로 든 사진은 4:5, 가로로 든 사진은 5:4(같은 비율을 눕힌 것)
+        if (dw >= dh) {
+            if (dh * 5 > dw * 4) { cw = dw; ch = dw * 4 / 5 } else { ch = dh; cw = dh * 5 / 4 }
+        } else {
+            if (dw * 5 > dh * 4) { ch = dh; cw = dh * 4 / 5 } else { cw = dw; ch = dw * 5 / 4 }
+        }
+        val rw = if (odd) ch else cw
+        val rh = if (odd) cw else ch
+        if (rw == src.width && rh == src.height) return src
+        val x = (src.width - rw) / 2; val y = (src.height - rh) / 2
+        val out = Bitmap.createBitmap(rw, rh, Bitmap.Config.ARGB_8888) // 가변: 뒤에서 LUT를 제자리에 적용한다
+        Canvas(out).drawBitmap(src, android.graphics.Rect(x, y, x + rw, y + rh), android.graphics.Rect(0, 0, rw, rh), null)
+        src.recycle()
+        return out
     }
 
     /**

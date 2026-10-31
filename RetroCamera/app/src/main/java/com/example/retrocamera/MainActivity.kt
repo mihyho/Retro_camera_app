@@ -56,8 +56,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
+            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
 
         controller = AppController(applicationContext)
@@ -70,6 +70,8 @@ class MainActivity : ComponentActivity() {
         controller.onFlipCamera = { controller.lensFront = !controller.lensFront; startCamera() }
         controller.onExposureChange = { camera?.cameraControl?.setExposureCompensationIndex(it) }
         controller.onFlashChange = { camera?.cameraControl?.enableTorch(it && !controller.lensFront) }
+        controller.onStrip = { renderer.setStrip(it) }
+        controller.onPreviewRect = { renderer.setPreview(it) }
         controller.onZoomReset = { zoomTarget = 1f; camera?.cameraControl?.setZoomRatio(1f) }
         controller.onRequestPermission = {
             if (controller.perm == AppController.Perm.DENIED && !shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)) {
@@ -87,13 +89,12 @@ class MainActivity : ComponentActivity() {
                 renderer.setLut(controller.lutFor(controller.currentFilm))
                 renderer.setClarity(controller.currentFilm.clarity)
             }
-            // 필름 그리드: 모든 필름의 LUT를 타일로 그린다(LUT 읽기는 백그라운드에서)
-            LaunchedEffect(controller.drawerOpen) {
-                if (controller.drawerOpen) {
-                    val tiles = withContext(Dispatchers.Default) { Film.entries.map { LutRenderer.GridTile(controller.lutFor(it), it.clarity) } }
-                    if (controller.drawerOpen) renderer.setGrid(tiles)
-                } else renderer.setGrid(null)
+            // 모든 필름의 LUT를 미리 올린다: 필름 그리드와 하단 필름 스트립의 실시간 칩이 같이 쓴다(LUT 읽기는 백그라운드에서)
+            LaunchedEffect(Unit) {
+                val tiles = withContext(Dispatchers.Default) { Film.entries.map { LutRenderer.GridTile(controller.lutFor(it), it.clarity) } }
+                renderer.setTiles(tiles)
             }
+            LaunchedEffect(controller.drawerOpen) { renderer.setGridVisible(controller.drawerOpen) }
             CameraScreen(controller, glView, onShutter = ::takePhoto, onZoomBy = ::zoomBy, onZoomStep = ::zoomStep)
         }
 

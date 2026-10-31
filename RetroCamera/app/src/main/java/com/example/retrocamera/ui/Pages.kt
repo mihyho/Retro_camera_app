@@ -224,7 +224,7 @@ fun FilmLoadModal(c: AppController) {
                     listOf(24, 36).forEach { n ->
                         val on = c.pendingLength == n
                         Box(Modifier.weight(1f).fillMaxSize().background(if (on) Ds.Accent else Ds.Bg).tap { c.pendingLength = n }, contentAlignment = Alignment.Center) {
-                            Text("${n}장", if (on) Ds.Ink else Ds.AccentInk, t13)
+                            Text("${n}장", if (on) Ds.OnAccent else Ds.AccentInk, t13)
                         }
                     }
                 }

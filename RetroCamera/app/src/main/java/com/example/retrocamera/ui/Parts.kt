@@ -155,11 +155,11 @@ fun ActionRow(label: String, color: Color = Ds.AccentInk, last: Boolean = false,
 fun IosAlert(title: String, msg: String, ok: String, onCancel: () -> Unit, onOk: () -> Unit) {
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .4f)).tap(onClick = onCancel), contentAlignment = Alignment.Center) {
         Column(
-            Modifier.width(270.dp).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = .98f)).tap { /* 카드 안 탭이 닫힘으로 새지 않게 */ },
+            Modifier.width(270.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF2A2620)).tap { /* 카드 안 탭이 닫힘으로 새지 않게 */ },
         ) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, Ds.Ink, t17m.copy(textAlign = TextAlign.Center), Modifier.fillMaxWidth())
-                Text(msg, Ds.Ink, t13.copy(textAlign = TextAlign.Center, lineHeight = 18.sp), Modifier.fillMaxWidth())
+                Text(msg, Ds.Sub, t13.copy(textAlign = TextAlign.Center, lineHeight = 18.sp), Modifier.fillMaxWidth())
             }
             Hairline()
             Row(Modifier.fillMaxWidth().height(44.dp)) {
@@ -175,9 +175,9 @@ fun IosAlert(title: String, msg: String, ok: String, onCancel: () -> Unit, onOk:
 @Composable
 fun Hud(text: String, modifier: Modifier = Modifier) {
     Text(
-        text, Ds.Ink, t13.copy(textAlign = TextAlign.Center),
-        modifier.widthIn(max = 300.dp).clip(RoundedCornerShape(6.dp)).background(Color.White.copy(alpha = .97f))
-            .border(0.5.dp, Ds.Line, RoundedCornerShape(6.dp)).padding(horizontal = 14.dp, vertical = 8.dp),
+        text, Ds.OnAccent, t13.copy(textAlign = TextAlign.Center),
+        modifier.widthIn(max = 300.dp).clip(RoundedCornerShape(10.dp)).background(Ds.Ink.copy(alpha = .94f))
+            .padding(horizontal = 14.dp, vertical = 8.dp),
     )
 }
 

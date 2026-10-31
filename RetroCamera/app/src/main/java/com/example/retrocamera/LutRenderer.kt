@@ -59,6 +59,31 @@ class LutRenderer(
         glView.requestRender()
     }
 
+    /** 모든 필름의 LUT를 미리 올려 둔다(그리드와 하단 필름 스트립이 같이 쓴다). 화면에는 그리지 않는다 */
+    fun setTiles(tiles: List<GridTile>) {
+        pendingGrid = tiles
+        glView.requestRender()
+    }
+
+    fun setGridVisible(on: Boolean) {
+        gridOn = on
+        glView.requestRender()
+    }
+
+    /** 프리뷰를 그릴 곳 [x, y, w, h, 모서리 반지름](뷰 왼쪽 위 기준 px). null이면 뷰 전체 */
+    @Volatile private var previewRect: IntArray? = null
+    fun setPreview(rect: IntArray?) {
+        previewRect = rect
+        glView.requestRender()
+    }
+
+    /** 필름 스트립의 칸마다 [x, y(위 기준), 크기, 투명도] px를 네 개씩 받아, 그 필름 LUT로 같은 영상을 작게 그린다 */
+    @Volatile private var stripRects: FloatArray? = null
+    fun setStrip(rects: FloatArray?) {
+        stripRects = rects
+        glView.requestRender()
+    }
+
     @Volatile private var rotationDegrees = 0
     /** 화면(UI)을 돌렸을 때 미리보기가 같이 돌아가지 않도록 더 돌려 줄 각도(시계 방향). SurfaceTexture 행렬은 세로 기준 회전만 담고 있다 */
     @Volatile private var extraRotation = 0f
@@ -163,27 +188,54 @@ class LutRenderer(
 
         pendingGrid?.let { uploadGrid(it); pendingGrid = null }
         GLES30.glViewport(0, 0, viewW, viewH)
-        GLES30.glClearColor(0f, 0f, 0f, 1f)
+        GLES30.glClearColor(BG_R, BG_G, BG_B, 1f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         val st = surfaceTexture ?: return
         st.updateTexImage()
         st.getTransformMatrix(stMatrix)
 
-        if (gridOn && gridTiles.isNotEmpty() && gridTex.size == gridTiles.size) {
-            val rows = (gridTiles.size + gridCols - 1) / gridCols
-            val tw = viewW / gridCols; val th = viewH / rows
-            gridTiles.forEachIndexed { i, t ->
-                val x = (i % gridCols) * tw
-                val y = viewH - (i / gridCols + 1) * th // GL 뷰포트는 왼쪽 아래가 원점
-                drawTile(x, y, tw, th, gridTex[i], t.lut.size, t.clarity, true)
+        val pr = previewRect
+        val px = pr?.get(0) ?: 0
+        val pw = pr?.get(2) ?: viewW
+        val ph = pr?.get(3) ?: viewH
+        val py = viewH - ((pr?.get(1) ?: 0) + ph) // GL 뷰포트는 왼쪽 아래가 원점
+        if (pw > 0 && ph > 0) {
+            if (gridOn && gridTiles.isNotEmpty() && gridTex.size == gridTiles.size) {
+                val rows = (gridTiles.size + gridCols - 1) / gridCols
+                val tw = pw / gridCols; val th = ph / rows
+                gridTiles.forEachIndexed { i, t ->
+                    val x = px + (i % gridCols) * tw
+                    val y = py + ph - (i / gridCols + 1) * th
+                    drawTile(x, y, tw, th, gridTex[i], t.lut.size, t.clarity, true)
+                }
+            } else {
+                drawTile(px, py, pw, ph, lutTex, lut.size, clarity, lutEnabled, 1f, (pr?.getOrNull(4) ?: 0).toFloat())
             }
-        } else {
-            drawTile(0, 0, viewW, viewH, lutTex, lut.size, clarity, lutEnabled)
+        }
+
+        val sr = stripRects
+        if (sr != null && gridTiles.isNotEmpty() && gridTex.size == gridTiles.size) {
+            // 배열 끝의 4개는 스트립 영역 [왼쪽, 위, 오른쪽, 아래]: 칩이 스트립 밖(프리뷰 위)으로 나가 그려지지 않게 자른다
+            val ci = gridTiles.size * 4
+            if (sr.size >= ci + 4) {
+                val l = sr[ci].toInt(); val t = sr[ci + 1].toInt(); val r = sr[ci + 2].toInt(); val b = sr[ci + 3].toInt()
+                GLES30.glEnable(GLES30.GL_SCISSOR_TEST)
+                GLES30.glScissor(l, viewH - b, (r - l).coerceAtLeast(0), (b - t).coerceAtLeast(0))
+            }
+            for (i in gridTiles.indices) {
+                val o = i * 4
+                if (o + 3 >= sr.size) break
+                val s = sr[o + 2].toInt()
+                val x = sr[o].toInt()
+                if (s < 2 || x + s < 0 || x > viewW) continue
+                drawTile(x, viewH - (sr[o + 1].toInt() + s), s, s, gridTex[i], gridTiles[i].lut.size, gridTiles[i].clarity, true, sr[o + 3], s * 0.29f)
+            }
+            GLES30.glDisable(GLES30.GL_SCISSOR_TEST)
         }
     }
 
-    /** 뷰포트 한 칸에 영상을 중앙 크롭으로 그린다 */
-    private fun drawTile(x: Int, y: Int, w: Int, h: Int, tex: Int, lutSize: Int, clarity: Float, lutOn: Boolean) {
+    /** 뷰포트 한 칸에 영상을 중앙 크롭으로 그린다. round>0이면 모서리를 둥글게(바깥은 그리지 않음), alpha<1이면 바탕색 쪽으로 흐리게 */
+    private fun drawTile(x: Int, y: Int, w: Int, h: Int, tex: Int, lutSize: Int, clarity: Float, lutOn: Boolean, alpha: Float = 1f, round: Float = 0f) {
         GLES30.glViewport(x, y, w, h)
         // 화면 uv(0..1) -> 중앙 크롭 -> SurfaceTexture 변환.
         // 회전은 SurfaceTexture 변환 행렬에 이미 포함돼 있다(에뮬레이터에서 확인: rotationDegrees=90일 때
@@ -211,6 +263,10 @@ class LutRenderer(
         GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uLutSize"), lutSize.toFloat())
         GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uLutOn"), if (lutOn) 1f else 0f)
         GLES30.glUniform2f(GLES30.glGetUniformLocation(program, "uTexel"), 1f / bufferW, 1f / bufferH)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uAlpha"), alpha)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uRound"), round)
+        GLES30.glUniform2f(GLES30.glGetUniformLocation(program, "uHalf"), w / 2f, h / 2f)
+        GLES30.glUniform3f(GLES30.glGetUniformLocation(program, "uBg"), BG_R, BG_G, BG_B)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uClarity"), clarity)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "uClaritySigma"), Clarity.sigma(bufferW))
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
@@ -263,11 +319,18 @@ class LutRenderer(
     private companion object {
         const val EXTRA_SIGN = 1
 
+        // UI 바탕(Ds.Bg = 0xFF161410)과 같은 색: 스트립 자리와 흐린 칩이 바탕에 자연스럽게 섞인다
+        const val BG_R = 0x16 / 255f
+        const val BG_G = 0x14 / 255f
+        const val BG_B = 0x10 / 255f
+
         const val VERTEX = """#version 300 es
 layout(location = 0) in vec2 aPos;
 uniform mat4 uTexMatrix;
 out vec2 vUv;
+out vec2 vPos;
 void main() {
+    vPos = aPos;
     gl_Position = vec4(aPos, 0.0, 1.0);
     vUv = (uTexMatrix * vec4(aPos * 0.5 + 0.5, 0.0, 1.0)).xy;
 }"""
@@ -286,13 +349,22 @@ uniform float uLutOn;
 uniform vec2 uTexel;
 uniform float uClarity;
 uniform float uClaritySigma;
+uniform float uAlpha;
+uniform float uRound;
+uniform vec2 uHalf;
+uniform vec3 uBg;
 in vec2 vUv;
+in vec2 vPos;
 out vec4 outColor;
 vec3 grade(vec3 c) {
     vec3 p = c * ((uLutSize - 1.0) / uLutSize) + 0.5 / uLutSize;
     return texture(uLut, p).rgb;
 }
 void main() {
+    if (uRound > 0.0) {
+        vec2 q = abs(vPos) * uHalf - (uHalf - vec2(uRound));
+        if (length(max(q, 0.0)) > uRound) discard;
+    }
     vec3 c0 = texture(uCam, vUv).rgb;
     vec2 o = uTexel * 1.5;
     // 세부 분리용 흐림(색감을 입힐 때 노이즈가 늘지 않게)은 원본 샘플로 만든다
@@ -320,7 +392,7 @@ void main() {
     vec3 gb = grade(base);
     vec3 dIn = c - base;
     vec3 graded = gb + clamp(grade(c) - gb, -abs(dIn), abs(dIn));
-    outColor = vec4(mix(c, graded, uLutOn), 1.0);
+    outColor = vec4(mix(uBg, mix(c, graded, uLutOn), uAlpha), 1.0);
 }"""
     }
 }

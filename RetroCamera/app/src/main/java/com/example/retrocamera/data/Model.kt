@@ -29,7 +29,12 @@ enum class Film(
     LEICA_STD("leicastd", "LeicaSTD", "LeicaSTD", 100, 0xFFB5322A, 0xFFF8E4E2, 0xFF6B1B16, "절제된 색, 살짝 따뜻한 초록"),
     LEICA_VIV("leicaviv", "LeicaVIV", "LeicaVIV", 100, 0xFFC4452B, 0xFFF9E6DF, 0xFF70230F, "조금 더 짙고 선명한 초록"),
     FPROVIA("fprovia100f", "FProvia100F", "FProvia100F", 100, 0xFF3B82B8, 0xFFE2EEF8, 0xFF1E4A6B, "깨끗하고 정확한 색"),
-    KCHROME("kchrome", "KCHROME", "KCHROME", 64, 0xFFC99A1E, 0xFFF9F0D4, 0xFF6E5409, "진한 노랑, 따뜻한 중간톤");
+    KCHROME("kchrome", "KCHROME", "KCHROME", 64, 0xFFC99A1E, 0xFFF9F0D4, 0xFF6E5409, "진한 노랑, 따뜻한 중간톤"),
+
+    // 필터 수식으로 구운 필름 (tools/gen_filter_luts.js)
+    CINE("cine500", "Cine500", "Cine500", 500, 0xFF2F8F99, 0xFFE0F0F1, 0xFF1B5359, "청록빛 그림자, 영화 같은 대비"),
+    FADED("faded100", "Faded100", "Faded100", 100, 0xFFA8957A, 0xFFF3EDE3, 0xFF5E5039, "바랜 90년대 사진, 들뜬 검정", grain = 0.030f),
+    NIGHT("night1600", "Night1600", "Night1600", 1600, 0xFFC0392B, 0xFFF8E3E0, 0xFF6E1F17, "붉게 쏠린 밤 색, 거친 입자", grain = 0.045f);
 
     /** assets/luts 아래의 .cube 파일 이름 */
     val lutAsset: String get() = "luts/$key.cube"

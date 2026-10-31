@@ -10,6 +10,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,19 +51,19 @@ fun CameraScreen(
     BackHandler(enabled = panel == null && !c.loadOpen && c.drawerOpen) { c.closeDrawer() }
     BackHandler(enabled = panel == null && !c.loadOpen && c.exposureOpen) { c.exposureOpen = false }
 
+    SideEffect { Ds.filmColor = c.currentFilm.glow() }
+
     fun openPage(p: Panel) { c.exposureOpen = false; c.closeDrawer(); c.panel = p }
 
     Box(Modifier.fillMaxSize().background(Ds.Bg).windowInsetsPadding(WindowInsets.systemBars)) {
-        CameraLayout(
-            top = { TopBar(c, onSettings = { openPage(Panel.Settings) }, onLibrary = { openPage(Panel.Gallery) }) },
-            viewfinder = { Viewfinder(c, glView, onZoomBy, onZoomStep, onLoad = c::openLoad) },
-            bottom = { land ->
-                BottomBar(
-                    c, land, onLibrary = { openPage(Panel.Gallery) }, onShutter = onShutter,
-                    onGrid = { if (s.mode == Mode.FILM && s.roll == null) c.openLoad() else if (c.drawerOpen) c.closeDrawer() else c.openDrawer() },
-                )
-            },
-        )
+        Column(Modifier.fillMaxSize()) {
+            TopBar(c, onSettings = { openPage(Panel.Settings) }, onLibrary = { openPage(Panel.Gallery) })
+            CameraBody(
+                c, glView, onLibrary = { openPage(Panel.Gallery) }, onShutter = onShutter,
+                onGrid = { if (s.mode == Mode.FILM && s.roll == null) c.openLoad() else if (c.drawerOpen) c.closeDrawer() else c.openDrawer() },
+                onZoomBy = onZoomBy, onZoomStep = onZoomStep, onLoad = c::openLoad, modifier = Modifier.weight(1f),
+            )
+        }
 
         SlideRight(base == Panel.Gallery) { LibraryPage(c, onClose = { c.panel = null }) }
         SlideRight(base == Panel.Settings) { SettingsPage(c, onClose = { c.panel = null }) }

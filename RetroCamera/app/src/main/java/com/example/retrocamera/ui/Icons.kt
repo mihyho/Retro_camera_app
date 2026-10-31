@@ -53,12 +53,18 @@ fun Icon(kind: Ico, size: Dp, color: Color, modifier: Modifier = Modifier, fill:
                 arrowArc(color, k, 12f, 13f, 3.6f, 20f)
             }
             Ico.GEAR -> {
-                circle(12f, 12f, 6.2f); circle(12f, 12f, 2.4f)
-                for (i in 0 until 8) {
-                    val a = Math.toRadians(i * 45.0)
-                    val c = cos(a).toFloat(); val s = sin(a).toFloat()
-                    line(12f + c * 6.2f, 12f + s * 6.2f, 12f + c * 9f, 12f + s * 9f)
+                // 이 6개짜리 윤곽 톱니(이 사이가 파인 모양). 햇살로 보이지 않게 이 폭을 넓게 둔다
+                val gear = Path()
+                for (i in 0 until 6) {
+                    for ((da, r) in listOf(-16.0 to 6.6f, -10.0 to 8.8f, 10.0 to 8.8f, 16.0 to 6.6f)) {
+                        val a = Math.toRadians(i * 60.0 + da)
+                        val x = (12f + r * sin(a).toFloat()) * k; val y = (12f - r * cos(a).toFloat()) * k
+                        if (i == 0 && da == -16.0) gear.moveTo(x, y) else gear.lineTo(x, y)
+                    }
                 }
+                gear.close()
+                drawPath(gear, color, style = st)
+                circle(12f, 12f, 2.8f)
             }
             Ico.IMAGES -> {
                 rrect(3f, 5f, 18f, 14f, 2f); circle(8.5f, 10f, 1.5f)
