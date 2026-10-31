@@ -245,7 +245,7 @@ private fun PhotoBack(shot: Shot, modifier: Modifier) {
                 when {
                     a == null -> "기록 없음"
                     a <= 0f -> "없음"
-                    else -> "양 ${Math.round(a * 100)}%  ·  크기 %.1f배".format(shot.grainSize ?: 1f)
+                    else -> "양 ${Math.round(a * 100)}%  ·  크기 ${"%.1f".format(shot.grainSize ?: 1f)}배"
                 },
                 if (a == null) Ds.Sub else Ds.Ink, t17,
             )
